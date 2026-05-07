@@ -6,62 +6,52 @@ import datetime
 # إعداد الصفحة
 st.set_page_config(page_title="نظام Bébé Sympa للإنتاج", layout="wide")
 
-# رابط اللوجو الخاص بك (تم رفعه ليظهر في الخلفية)
-logo_url = "https://raw.githubusercontent.com/hosinmariya-netizen/Mixer-Packaging/main/logo.png" 
+# رابط الصورة التي رفعتها أنت على GitHub
+# قمت بتعديل الروابط لتناسب الملف الذي رفعته (images (5) (5).jpeg)
+logo_path = "https://raw.githubusercontent.com/hosinmariya-netizen/Mixer-Packaging/main/images%20(5)%20(5).jpeg"
 
-# إضافة اللوجو في الخلفية وتنسيق الألوان بناءً على شعار Bébé Sympa
+# تنسيق الألوان والشعار في الخلفية
 st.markdown(f"""
     <style>
-    /* خلفية اللوجو الشفافة */
     .stApp {{
-        background-image: linear-gradient(rgba(255,255,255,0.92), rgba(255,255,255,0.92)), url("https://i.ibb.co/Vp884Y7/image.png");
+        background-image: linear-gradient(rgba(255,255,255,0.94), rgba(255,255,255,0.94)), url("{logo_path}");
         background-attachment: fixed;
-        background-size: contain;
+        background-size: 300px; /* حجم اللوجو في الخلفية */
         background-position: center;
         background-repeat: no-repeat;
     }}
     
-    /* تنسيق النصوص والاتجاه */
     .main {{ text-align: right; direction: rtl; }}
-    h1, h2, h3, p {{ color: #2e7d32; text-align: right; }} /* لون أخضر مثل اللوجو */
+    h1, h2, h3, p {{ color: #2e7d32; text-align: right; }}
     
-    /* تنسيق الأزرار باللون الأزرق الجذاب من اللوجو */
     div.stButton > button {{ 
         width: 100%; 
         border-radius: 20px; 
         background-color: #00a4e4; 
         color: white; 
         font-weight: bold;
-        border: none;
-    }}
-    
-    /* القائمة الجانبية */
-    section[data-testid="stSidebar"] {{
-        background-color: #f1f8e9;
-        direction: rtl;
     }}
     </style>
     """, unsafe_allow_html=True)
 
 # --- نظام كلمة السر ---
-st.sidebar.image("https://i.ibb.co/Vp884Y7/image.png", width=150)
+st.sidebar.image(logo_path, width=150)
 st.sidebar.title("🔐 دخول الإدارة")
 user_password = st.sidebar.text_input("أدخل كلمة السر", type="password")
 
 if user_password != "2025":
     st.title("🧵 مرحباً بك في Bébé Sympa")
-    st.warning("يرجى إدخال كلمة السر في القائمة الجانبية لرؤية جدول الإنتاج.")
+    st.warning("يرجى إدخل كلمة السر في القائمة الجانبية (2025)")
     st.stop()
 
-# --- محتوى التطبيق بعد كلمة السر ---
+# --- محتوى التطبيق ---
 st.title("📊 لوحة مراقبة الإنتاج - Bébé Sympa")
 
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
     df = conn.read(ttl="0")
     df.columns = df.columns.str.strip()
-except Exception as e:
-    st.error("خطأ في الاتصال بجوجل شيت")
+except:
     df = pd.DataFrame()
 
 if not df.empty:
@@ -76,7 +66,6 @@ if not df.empty:
 
     st.dataframe(filtered_df, use_container_width=True)
     
-    # الإحصائيات بألوان جميلة
     st.divider()
     c1, c2 = st.columns(2)
     with c1:
@@ -85,6 +74,4 @@ if not df.empty:
         if 'الحالة' in df.columns:
             in_progress = len(df[df['الحالة'].str.contains('خياطة', na=False)])
             st.metric("🧵 قيد الخياطة", in_progress)
-else:
-    st.info("الجدول فارغ حالياً.")
-    
+            
