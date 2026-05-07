@@ -4,91 +4,77 @@ import pandas as pd
 import datetime
 
 # إعداد الصفحة
-st.set_page_config(page_title="نظام Bébé Sympa - تحديث فوري", layout="wide")
+st.set_page_config(page_title="نظام Bébé Sympa الذكي", layout="wide")
 
-# رابط الصورة التي رفعتها
+# رابط اللوجو
 logo_path = "https://raw.githubusercontent.com/hosinmariya-netizen/Mixer-Packaging/main/images%20(5)%20(5).jpeg"
 
-# تنسيق الوضع الليلي (Dark Mode)
+# التنسيق الليلي
 st.markdown(f"""
     <style>
     .stApp {{
         background-color: #0e1117;
         background-image: linear-gradient(rgba(14, 17, 23, 0.85), rgba(14, 17, 23, 0.85)), url("{logo_path}");
-        background-attachment: fixed;
-        background-size: 350px;
-        background-position: center;
-        background-repeat: no-repeat;
+        background-attachment: fixed; background-size: 350px; background-position: center; background-repeat: no-repeat;
     }}
     .main {{ text-align: right; direction: rtl; }}
-    h1, h2, h3 {{ color: #4caf50 !important; text-align: right; }}
-    p, span, label {{ color: #ffffff !important; text-align: right; }}
-    div.stButton > button {{ 
-        width: 100%; 
-        border-radius: 20px; 
-        background-color: #00a4e4; 
-        color: white; 
-        font-weight: bold;
-    }}
-    /* تنسيق خاص لزر التحديث ليبرز */
-    .refresh-btn > div > button {{
-        background-color: #28a745 !important;
-        border-radius: 10px !important;
-    }}
+    h1, h2, h3, p, span, label {{ color: #ffffff !important; text-align: right; }}
+    div.stButton > button {{ border-radius: 20px; background-color: #00a4e4; color: white; font-weight: bold; }}
     </style>
     """, unsafe_allow_html=True)
 
-# --- نظام كلمة السر ---
+# الاتصال بجوجل شيت
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+# --- القائمة الجانبية ---
 st.sidebar.image(logo_path, width=150)
 user_password = st.sidebar.text_input("أدخل كلمة السر", type="password")
 
+if user_password == "2025":
+    st.sidebar.divider()
+    st.sidebar.header("📝 تسجيل طلبية جديدة")
+    # هنا تكمن الفكرة: البرنامج يأخذ التاريخ تلقائياً
+    with st.sidebar.form("new_order"):
+        prod_name = st.text_input("اسم المنتج")
+        ws_name = st.text_input("ورشة الخياطة")
+        submit_order = st.form_submit_button("إرسال وحفظ التاريخ تلقائياً")
+        
+        if submit_order and prod_name and ws_name:
+            # جلب البيانات الحالية
+            existing_data = conn.read(ttl=0)
+            # إنشاء سطر جديد مع التاريخ والوقت الحالي تلقائياً
+            now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+            new_entry = pd.DataFrame([{
+                "المنتج": prod_name,
+                "ورشة_الخياطة": ws_name,
+                "تاريخ_الخروج_للخياطة": now, # التاريخ أُخذ آلياً هنا
+                "الحالة": "في الخياطة"
+            }])
+            updated_df = pd.concat([existing_data, new_entry], ignore_index=True).fillna("-")
+            conn.update(data=updated_df)
+            st.sidebar.success("تم التسجيل مع التاريخ آلياً!")
+            st.rerun()
+
+# --- واجهة العرض الرئيسية ---
 if user_password != "2025":
-    st.title("🌙 نظام Bébé Sympa")
-    st.warning("يرجى إدخال كلمة السر (2025)")
+    st.warning("يرجى إدخال كلمة السر")
     st.stop()
 
-# --- محتوى التطبيق ---
-# إنشاء صفين للعنوان وزر التحديث
 col_title, col_refresh = st.columns([4, 1])
-
-with col_title:
-    st.title("📊 لوحة الإنتاج المباشرة")
-
+with col_title: st.title("📊 لوحة الإنتاج الذكية")
 with col_refresh:
-    st.write("##") # لإزاحة الزر لأسفل قليلاً ليحاذي العنوان
-    if st.button("🔄 تحديث البيانات"):
-        st.cache_data.clear() # مسح الذاكرة المؤقتة
-        st.rerun() # إعادة تشغيل الكود لجلب البيانات الجديدة
+    if st.button("🔄 تحديث"):
+        st.cache_data.clear()
+        st.rerun()
 
 try:
-    conn = st.connection("gsheets", type=GSheetsConnection)
-    # تعديل: أضفنا ttl=0 لضمان عدم تخزين البيانات القديمة
-    df = conn.read(ttl=0) 
+    df = conn.read(ttl=0)
     df.columns = df.columns.str.strip()
-except:
-    st.error("فشل الاتصال بجوجل شيت")
-    df = pd.DataFrame()
-
-if not df.empty:
     st.header("🔎 البحث")
-    search_query = st.text_input("ابحث عن منتج أو ورشة:")
-    
-    if search_query:
-        mask = df.astype(str).apply(lambda x: x.str.contains(search_query, na=False)).any(axis=1)
-        filtered_df = df[mask]
-    else:
-        filtered_df = df
-
-    st.dataframe(filtered_df, use_container_width=True)
-    
-    st.divider()
-    c1, c2 = st.columns(2)
-    with c1:
-        st.metric("📦 إجمالي الطلبيات", len(df))
-    with c2:
-        if 'الحالة' in df.columns:
-            in_progress = len(df[df['الحالة'].str.contains('خياطة', na=False)])
-            st.metric("🧵 قيد الخياطة", in_progress)
-else:
-    st.info("الجدول فارغ حالياً.")
+    search = st.text_input("ابحث هنا...")
+    if search:
+        df = df[df.astype(str).apply(lambda x: x.str.contains(search, na=False)).any(axis=1)]
+    st.dataframe(df, use_container_width=True)
+except:
+    st.error("تأكد من عناوين الجدول في جوجل شيت")
     
