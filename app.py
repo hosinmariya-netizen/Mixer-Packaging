@@ -2,7 +2,12 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import datetime
-
+# نظام حماية بسيط بكلمة سر
+password = st.sidebar.text_input("أدخل كلمة السر لرؤية البيانات", type="password")
+if password != "1234": # يمكنك تغيير 1234 لأي رقم تريده
+    st.warning("يرجى إدخال كلمة السر الصحيحة في القائمة الجانبية")
+    st.stop() # يمنع ظهور باقي الموقع إذا كانت الكلمة خطأ
+    
 st.set_page_config(page_title="نظام تتبع الورش", layout="wide")
 
 st.markdown("""
