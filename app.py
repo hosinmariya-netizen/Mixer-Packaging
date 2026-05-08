@@ -11,6 +11,8 @@ st.markdown("""
     .stApp { background-color: #0e1117; color: white; direction: rtl; }
     .stButton>button { border-radius: 10px; }
     .warning-text { color: #ff4b4b; font-weight: bold; padding: 10px; border: 1px solid #ff4b4b; border-radius: 5px; }
+    .badge-green { background-color: #28a745; color: white; border-radius: 50%; padding: 2px 8px; font-weight: bold; }
+    .badge-red { background-color: #dc3545; color: white; border-radius: 50%; padding: 2px 8px; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -50,15 +52,30 @@ try:
     with tab1:
         st.subheader("📦 إدارة المستلمات من المنازل")
         homes = [h for h in df['المنزل'].unique() if h != "-"]
+
         for home in homes:
-            with st.expander(f"🏠 منزل: {home}"):
-                home_data = df[df['المنزل'] == home]
-                prods = home_data['المنتج'].unique()
+            home_data = df[df['المنزل'] == home]
+            prods = home_data['المنتج'].unique()
+
+            # حساب عدد المنتجات المتبقية
+            pending_count = 0
+            for prod in prods:
+                p_data = home_data[home_data['المنتج'] == prod]
+                total_out = p_data[p_data['الحالة'].isin(['ct', 'fn'])]['الكمية'].sum()
+                already_in = p_data[p_data['الحالة'] == 'st']['الكمية'].sum()
+                if total_out - already_in > 0:
+                    pending_count += 1
+
+            badge = f'<span class="badge-green">{pending_count}</span>' if pending_count > 0 else f'<span class="badge-red">0</span>'
+            label = f"🏠 منزل: {home}  {badge}"
+
+            with st.expander(label, unsafe_allow_html=True):
                 for prod in prods:
                     p_data = home_data[home_data['المنتج'] == prod]
                     total_out = p_data[p_data['الحالة'].isin(['ct', 'fn'])]['الكمية'].sum()
                     already_in = p_data[p_data['الحالة'] == 'st']['الكمية'].sum()
                     max_allowed = total_out - already_in
+
                     if max_allowed > 0:
                         st.markdown(f"--- \n **المنتج:** {prod}")
                         c1, c2, c3 = st.columns([2, 2, 1])
