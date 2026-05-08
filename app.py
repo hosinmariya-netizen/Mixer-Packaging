@@ -27,6 +27,11 @@ st.markdown("""
     }
     .stButton>button { border-radius: 10px; }
     .warning-text { color: #ff4b4b; font-weight: bold; padding: 10px; border: 1px solid #ff4b4b; border-radius: 5px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { background-color: #333; color: white; padding: 6px; text-align: center; }
+    tr:nth-child(odd) { background-color: #D6C1A6; color: black; }
+    tr:nth-child(even) { background-color: #ffa500; color: black; }
+    td { padding: 5px 8px; text-align: center; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -48,6 +53,9 @@ def append_row(row):
     sheet = get_sheet()
     sheet.append_row(row)
 
+def update_row_qty(sheet, row_index, new_qty):
+    sheet.update_cell(row_index + 2, 1, new_qty)
+
 try:
     df = get_data()
     df.columns = df.columns.str.strip()
@@ -61,7 +69,7 @@ try:
             st.cache_resource.clear()
             st.rerun()
 
-    tab1, tab2, tab3, tab4 = st.tabs(["🏠 استلام من المنازل", "📤 إخراج للمنزل", "🏢 المخزن النهائي", "💰 كشف الحساب"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏠 استلام من المنازل", "📤 إخراج للمنزل", "🏢 المخزن النهائي", "📋 History", "💰 كشف الحساب"])
 
     with tab1:
         st.subheader("📦 إدارة المستلمات من المنازل")
@@ -163,6 +171,43 @@ try:
             st.divider()
 
     with tab4:
+        st.subheader("📋 سجل العمليات")
+        history = df[df['الحالة'].isin(['ct', 'fn', 'st'])].copy()
+        history['الكمية'] = history['الكمية'].astype(int)
+
+        rows_html = ""
+        for i, (idx, row) in enumerate(history.iterrows()):
+            color = "#D6C1A6" if i % 2 == 0 else "#ffa500"
+            checked = st.checkbox("↩️", key=f"hist_{idx}")
+            if checked:
+                sheet = get_sheet()
+                sheet.update_cell(idx + 2, 1, 0)
+                st.cache_resource.clear()
+                st.success(f"تم إرجاع الكمية للصفر")
+                st.rerun()
+            rows_html += f"""
+            <tr style="background-color:{color}">
+                <td>{row['المنزل']}</td>
+                <td>{row['المنتج']}</td>
+                <td>{row['الحالة']}</td>
+                <td>{row['الكمية']}</td>
+                <td>{row.get('التاريخ','')}</td>
+            </tr>"""
+
+        st.markdown(f"""
+        <table>
+            <tr>
+                <th>المنزل</th>
+                <th>المنتج</th>
+                <th>النوع</th>
+                <th>الكمية</th>
+                <th>التاريخ</th>
+            </tr>
+            {rows_html}
+        </table>
+        """, unsafe_allow_html=True)
+
+    with tab5:
         st.subheader("💰 ملخص العمليات المنجزة للدفع")
         payment_summary = df[df['الحالة'].isin(['ct', 'fn'])].groupby(['المنزل', 'الحالة'])['الكمية'].sum().unstack(fill_value=0)
         st.dataframe(payment_summary, use_container_width=True)
