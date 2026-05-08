@@ -26,8 +26,17 @@ st.markdown("""
         background-color: rgba(14, 17, 23, 0.92);
         z-index: 0;
     }
-    .stButton>button { border-radius: 8px; }
+    .stApp > div {
+        position: relative;
+        z-index: 1;
+    }
+    .stButton>button { 
+        border-radius: 8px;
+        background-color: #4CAF50;
+        color: white;
+    }
     .warning-text { color: #ff4b4b; font-weight: bold; }
+    .success-text { color: #4CAF50; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -64,7 +73,7 @@ def append_row(row):
     if sheet:
         sheet.append_row(row)
 
-# 3. الواجهة
+# 3. الواجهة الرئيسية
 try:
     if "df" not in st.session_state:
         st.session_state.df = get_data()
@@ -72,12 +81,27 @@ try:
 
     # الهيدر
     col_t, col_ref = st.columns([4, 1])
-    with col_t: st.title("🛡️ نظام الرقابة المطور")
+    with col_t: 
+        st.title("🛡️ نظام الرقابة المطور")
+        st.caption("نظام إدارة المخزون والمنازل")
     with col_ref:
-        if st.button("🔄 تحديث"):
+        if st.button("🔄 تحديث", use_container_width=True):
             st.cache_resource.clear()
             st.session_state.df = get_data()
             st.rerun()
+
+    # إحصائيات سريعة
+    if not df.empty:
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("📊 إجمالي المعاملات", len(df))
+        with col2:
+            st.metric("🏠 عدد المنازل", df['المنزل'].nunique())
+        with col3:
+            st.metric("📦 عدد المنتجات", df['المنتج'].nunique())
+        with col4:
+            total_qty = df['الكمية'].sum()
+            st.metric("📈 إجمالي الكميات", f"{int(total_qty)}")
 
     tabs = st.tabs(["🏠 استلام", "📤 إخراج", "🏢 المخزن", "💰 كشف حساب", "📜 History", "✅ إنجاز"])
 
@@ -86,43 +110,57 @@ try:
         st.subheader("📦 استلام الإنتاج")
         if not df.empty:
             homes = [h for h in df['المنزل'].unique() if h not in ["-", ""]]
-            for home in homes:
-                with st.expander(f"🏠 منزل: {home}"):
-                    home_data = df[df['المنزل'] == home]
-                    for prod in home_data['المنتج'].unique():
-                        p_data = home_data[home_data['المنتج'] == prod]
-                        rem = p_data[p_data['الحالة'].isin(['ct', 'fn'])]['الكمية'].sum() - p_data[p_data['الحالة'] == 'st']['الكمية'].sum()
-                        if rem > 0:
-                            st.write(f"**{prod}** (المتبقي: {int(rem)})")
-                            c1, c2 = st.columns([3, 1])
-                            qty_in = c1.number_input(f"الكمية", min_value=0, key=f"in_{home}_{prod}")
-                            if c2.button("تأكيد", key=f"btn_in_{home}_{prod}"):
-                                if qty_in > 0:
-                                    append_row([qty_in, prod, home, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "st"])
-                                    st.cache_resource.clear()
-                                    st.session_state.df = get_data()
-                                    st.success("✅ تمت العملية بنجاح")
-                                    st.rerun()
-                                else:
-                                    st.warning("⚠️ يرجى إدخال كمية صحيحة")
+            if homes:
+                for home in homes:
+                    with st.expander(f"🏠 منزل: {home}"):
+                        home_data = df[df['المنزل'] == home]
+                        for prod in home_data['المنتج'].unique():
+                            p_data = home_data[home_data['المنتج'] == prod]
+                            rem = p_data[p_data['الحالة'].isin(['ct', 'fn'])]['الكمية'].sum() - p_data[p_data['الحالة'] == 'st']['الكمية'].sum()
+                            if rem > 0:
+                                st.write(f"**{prod}** (المتبقي: {int(rem)})")
+                                c1, c2 = st.columns([3, 1])
+                                qty_in = c1.number_input(f"الكمية", min_value=0, key=f"in_{home}_{prod}")
+                                if c2.button("تأكيد", key=f"btn_in_{home}_{prod}"):
+                                    if qty_in > 0:
+                                        append_row([qty_in, prod, home, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "st"])
+                                        st.cache_resource.clear()
+                                        st.session_state.df = get_data()
+                                        st.success("✅ تمت العملية بنجاح")
+                                        st.rerun()
+                                    else:
+                                        st.warning("⚠️ يرجى إدخال كمية صحيحة")
+            else:
+                st.info("لا توجد منازل مسجلة حالياً")
+        else:
+            st.info("لا توجد بيانات لعرضها")
 
     # --- TAB 2: إخراج ---
     with tabs[1]:
         st.subheader("📤 إخراج بضاعة جديدة")
         with st.form("out_form"):
             f1, f2, f3 = st.columns(3)
+            
+            if not df.empty:
+                homes = [h for h in df['المنزل'].unique() if h not in ["", "-"]]
+                products = [p for p in df['المنتج'].unique() if p not in ["", "-"]]
+            else:
+                homes = []
+                products = []
 
-            homes = [h for h in df['المنزل'].unique() if h not in ["", "-"]]
-            products = [p for p in df['المنتج'].unique() if p not in ["", "-"]]
-
-            o_h = f1.selectbox("اسم المنزل", options=homes)
-            o_p = f2.selectbox("اسم المنتج", options=products)
+            o_h = f1.selectbox("اسم المنزل", options=homes if homes else ["لا توجد بيانات"])
+            o_p = f2.selectbox("اسم المنتج", options=products if products else ["لا توجد بيانات"])
             o_q = f3.number_input("الكمية", min_value=1)
-            o_s = st.radio("الحالة", ["ct", "fn"], horizontal=True)
-
-            if st.form_submit_button("تسجيل الخروج"):
-                if o_q > 0 and o_p.strip() and o_h.strip():
-                    append_row([o_q, o_p, o_h, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), o_s])
+            o_s = st.radio("نوع الخروج", ["ct (منزل كامل)", "fn (منزل ناقص)"], horizontal=True)
+            o_s_value = "ct" if o_s.startswith("ct") else "fn"
+            
+            col_btn1, col_btn2, col_btn3 = st.columns([1,2,1])
+            with col_btn2:
+                submitted = st.form_submit_button("تسجيل الخروج", use_container_width=True)
+            
+            if submitted:
+                if o_q > 0 and o_p.strip() and o_h.strip() and o_h != "لا توجد بيانات":
+                    append_row([o_q, o_p, o_h, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), o_s_value])
                     st.cache_resource.clear()
                     st.session_state.df = get_data()
                     st.success("✅ تم تسجيل العملية بنجاح")
@@ -137,23 +175,68 @@ try:
             s_in = df[df['الحالة'] == 'st'].groupby('المنتج')['الكمية'].sum()
             s_out = df[df['الحالة'] == 'cl'].groupby('المنتج')['الكمية'].sum()
             stock = s_in.subtract(s_out, fill_value=0).reset_index()
+            stock.columns = ['المنتج', 'الكمية']
             total_stock = stock['الكمية'].sum()
-            st.metric("إجمالي الرصيد", f"{int(total_stock)} قطعة")
-            for _, r in stock.iterrows():
-                if r['الكمية'] > 0:
-                    st.info(f"📦 {r['المنتج']}: {int(r['الكمية'])} قطعة متوفرة")
+            
+            col_m1, col_m2 = st.columns(2)
+            with col_m1:
+                st.metric("إجمالي الرصيد", f"{int(total_stock)} قطعة", delta="متوفر")
+            
+            if total_stock > 0:
+                for _, r in stock.iterrows():
+                    if r['الكمية'] > 0:
+                        st.info(f"📦 {r['المنتج']}: {int(r['الكمية'])} قطعة متوفرة")
+            else:
+                st.warning("⚠️ المخزن فارغ حالياً")
+        else:
+            st.info("لا توجد بيانات")
 
     # --- TAB 4: كشف الحساب ---
     with tabs[3]:
+        st.subheader("💰 كشف حساب المنازل")
         if not df.empty:
-            st.dataframe(df.pivot_table(index='المنزل', columns='الحالة', values='الكمية', aggfunc='sum', fill_value=0), use_container_width=True)
+            pivot_table = df.pivot_table(
+                index='المنزل', 
+                columns='الحالة', 
+                values='الكمية', 
+                aggfunc='sum', 
+                fill_value=0
+            )
+            
+            # إعادة تسمية الأعمدة للتوضيح
+            pivot_table = pivot_table.rename(columns={
+                'st': 'استلام',
+                'ct': 'خروج كامل',
+                'fn': 'خروج ناقص'
+            })
+            
+            # تحويل الأرقام إلى أعداد صحيحة
+            pivot_table = pivot_table.astype(int)
+            
+            st.dataframe(pivot_table, use_container_width=True)
+        else:
+            st.info("لا توجد بيانات لعرضها")
 
     # --- TAB 5: السجل ---
     with tabs[4]:
-        st.subheader("📜 سجل المعاملات (History)")
+        st.subheader("📜 سجل المعاملات (آخر 50)")
         if not df.empty:
             history_df = df.iloc[::-1].head(50)
+            # تحويل الكمية إلى عدد صحيح
+            history_df['الكمية'] = history_df['الكمية'].astype(int)
+            # تنسيق التاريخ للعرض
+            history_df['التاريخ'] = pd.to_datetime(history_df['التاريخ'], errors='coerce')
+            history_df['التاريخ'] = history_df['التاريخ'].dt.strftime('%Y-%m-%d %H:%M:%S')
             st.dataframe(history_df, use_container_width=True)
+            
+            # زر لتصدير البيانات
+            csv = history_df.to_csv(index=False).encode('utf-8-sig')
+            st.download_button(
+                label="📥 تحميل السجل كـ CSV",
+                data=csv,
+                file_name=f"history_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+            )
         else:
             st.info("السجل فارغ حالياً.")
 
@@ -165,14 +248,34 @@ try:
                 عدد_المنتجات=("المنتج", "nunique"),
                 مجموع_الكمية=("الكمية", "sum")
             ).reset_index()
+            
+            # تحويل إلى أعداد صحيحة (إزالة الفواصل العشرية والأصفار)
+            summary['مجموع_الكمية'] = summary['مجموع_الكمية'].fillna(0).astype(int)
+            summary['عدد_المنتجات'] = summary['عدد_المنتجات'].fillna(0).astype(int)
 
-            def highlight_row(row):
-                return ['background-color: #ff4b4b; color: white;' if row['مجموع_الكمية'] == 0 else '' for _ in row]
+            # تلوين الصفوف التي مجموعها صفر باللون الأحمر
+            def highlight_zero(row):
+                if row['مجموع_الكمية'] == 0:
+                    return ['background-color: #ff4b4b; color: white; font-weight: bold'] * len(row)
+                return [''] * len(row)
 
             st.dataframe(
-                summary.style.apply(highlight_row, axis=1),
-                use_container_width=True
+                summary.style.apply(highlight_zero, axis=1),
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "المنزل": st.column_config.TextColumn("المنزل"),
+                    "عدد_المنتجات": st.column_config.NumberColumn("عدد المنتجات", format="%d"),
+                    "مجموع_الكمية": st.column_config.NumberColumn("مجموع الكمية", format="%d")
+                }
             )
+            
+            # إضافة إحصائية سريعة
+            st.markdown("---")
+            total_homes = len(summary)
+            completed_homes = len(summary[summary['مجموع_الكمية'] == 0])
+            st.info(f"📊 من أصل {total_homes} منزل، {completed_homes} منزل منجز (مجموع الكمية = 0)")
+            
         else:
             st.info("لا توجد بيانات حالياً.")
 
