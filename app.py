@@ -4,7 +4,7 @@ import pandas as pd
 import datetime
 
 # إعداد الصفحة
-st.set_page_config(page_title="Bébé Sympa - نظام الاستلام", layout="wide", page_icon="✅")
+st.set_page_config(page_title="Bébé Sympa - الرقابة الذكية", layout="wide", page_icon="🛡️")
 
 # رابط اللوجو
 logo_path = "https://raw.githubusercontent.com/hosinmariya-netizen/Mixer-Packaging/main/images%20(5)%20(5).jpeg"
@@ -13,8 +13,8 @@ logo_path = "https://raw.githubusercontent.com/hosinmariya-netizen/Mixer-Packagi
 st.markdown("""
     <style>
     .stApp { background-color: #0e1117; color: white; direction: rtl; }
-    .stButton>button { border-radius: 10px; width: 100%; }
-    .status-box { padding: 10px; border-radius: 5px; margin: 5px 0; border: 1px solid #333; }
+    .stButton>button { border-radius: 10px; }
+    .warning-text { color: #ff4b4b; font-weight: bold; padding: 10px; border: 1px solid #ff4b4b; border-radius: 5px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -33,72 +33,75 @@ try:
     if 'الكمية' in df.columns:
         df['الكمية'] = pd.to_numeric(df['الكمية'], errors='coerce').fillna(0)
 
-    # الهيدر
+    # الهيدر وزر التحديث
     col_t, col_ref = st.columns([4, 1])
-    with col_t: st.title("✅ نظام الاستلام والمدفوعات")
+    with col_t: st.title("🛡️ نظام الرقابة والاستلام")
     with col_ref: 
-        if st.button("🔄 تحديث"): st.rerun()
+        if st.button("🔄 تحديث البيانات"): st.rerun()
 
-    tab1, tab2, tab3 = st.tabs(["🏠 المنازل (تسليم)", "🏢 مخزن الشركة", "💰 حسابات نهاية الشهر"])
+    tab1, tab2, tab3 = st.tabs(["🏠 استلام من المنازل", "🏢 المخزن النهائي", "💰 كشف الحساب"])
 
-    # --- التبويب الأول: المنازل والاستلام ---
+    # --- التبويب الأول: الرقابة الصارمة على الاستلام ---
     with tab1:
-        st.subheader("📦 سلع قيد العمل عند المنازل")
-        # حساب الباقي الفعلي عند كل منزل (الخارج - المستلم)
-        homes = df['المنزل'].unique()
+        st.subheader("📦 إدارة المستلمات من المنازل")
+        homes = [h for h in df['المنزل'].unique() if h != "-"]
+        
         for home in homes:
-            if home == "-": continue
             with st.expander(f"🏠 منزل: {home}"):
                 home_data = df[df['المنزل'] == home]
-                # عرض السلع التي لم تُستلم بالكامل بعد
                 prods = home_data['المنتج'].unique()
+                
                 for prod in prods:
                     p_data = home_data[home_data['المنتج'] == prod]
-                    # الكمية التي خرجت (ct + fn)
-                    out_ct = p_data[p_data['الحالة'] == 'ct']['الكمية'].sum()
-                    out_fn = p_data[p_data['الحالة'] == 'fn']['الكمية'].sum()
-                    # الكمية التي عادت للمخزن (st)
-                    in_st = p_data[p_data['الحالة'] == 'st']['الكمية'].sum()
+                    # حساب الخارج (ct + fn) والمستلم سابقاً (st)
+                    total_out = p_data[p_data['الحالة'].isin(['ct', 'fn'])]['الكمية'].sum()
+                    already_in = p_data[p_data['الحالة'] == 'st']['الكمية'].sum()
+                    max_allowed = total_out - already_in
                     
-                    remaining = (out_ct + out_fn) - in_st
-                    
-                    if remaining > 0:
-                        c1, c2, c3 = st.columns([2, 1, 1])
-                        c1.write(f"🔹 **{prod}** (الباقي بالخارج: {int(remaining)})")
+                    if max_allowed > 0:
+                        st.markdown(f"--- \n **المنتج:** {prod}")
+                        c1, c2, c3 = st.columns([2, 2, 1])
+                        
+                        with c1:
+                            input_qty = st.number_input(f"الكمية المستلمة (الحد الأقصى {int(max_allowed)})", 
+                                                       min_value=0, step=1, key=f"qty_{home}_{prod}")
+                        
+                        # منطق التحذير والتجاهل
+                        is_over = input_qty > max_allowed
+                        ignore_warning = False
+                        
+                        if is_over:
+                            st.markdown(f'<p class="warning-text">⚠️ تحذير: الكمية ({int(input_qty)}) أكبر من الصادرة ({int(max_allowed)})!</p>', unsafe_allow_html=True)
+                            ignore_warning = st.checkbox("تجاهل التحذير وتأكيد الكمية الزائدة", key=f"ign_{home}_{prod}")
+                        
                         with c2:
-                            amount_to_receive = st.number_input(f"الكمية المستلمة من {prod}", min_value=1, max_value=int(remaining), key=f"in_{home}_{prod}")
-                        with c3:
-                            if st.button(f"✓ استلام", key=f"btn_{home}_{prod}"):
-                                now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                                new_row = pd.DataFrame([{
-                                    "المنزل": home, "المنتج": prod, "الكمية": amount_to_receive, 
-                                    "الحالة": "st", "التاريخ": now
-                                }])
-                                updated_df = pd.concat([df, new_row], ignore_index=True)
-                                update_data(updated_df)
-                                st.success(f"تم استلام {amount_to_receive} قطعة!")
+                            # لا يظهر الزر أو لا يعمل إلا إذا كانت الكمية صحيحة أو تم اختيار التجاهل
+                            btn_disabled = is_over and not ignore_warning
+                            if st.button(f"✓ تأكيد الاستلام", key=f"btn_{home}_{prod}", disabled=btn_disabled):
+                                if input_qty > 0:
+                                    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                                    new_row = pd.DataFrame([{
+                                        "المنزل": home, "المنتج": prod, "الكمية": input_qty, 
+                                        "الحالة": "st", "التاريخ": now
+                                    }])
+                                    update_data(pd.concat([df, new_row], ignore_index=True))
+                                    st.success("تم تسجيل الاستلام بنجاح!")
+                    else:
+                        st.caption(f"✅ {prod}: تم استلام كامل الكمية الصادرة.")
 
     # --- التبويب الثاني: المخزن النهائي ---
     with tab2:
-        st.subheader("🏢 السلع الجاهزة في مخزن الشركة")
+        st.subheader("🏢 رصيد الشركة الحالي")
         stock_final = df[df['الحالة'] == 'st'].groupby('المنتج')['الكمية'].sum().reset_index()
-        stock_final.columns = ['اسم المنتج', 'الكمية الجاهزة']
+        stock_final.columns = ['اسم المنتج', 'المخزن (st)']
         st.table(stock_final)
 
-    # --- التبويب الثالث: تتبع الحركات والمدفوعات ---
+    # --- التبويب الثالث: تتبع الحركات ---
     with tab3:
-        st.subheader("💳 كشف حساب العمليات المنجزة")
-        # فلترة العمليات التي تمت (ct و fn) لحساب الأجر
-        payment_df = df[df['الحالة'].isin(['ct', 'fn'])].copy()
-        if not payment_df.empty:
-            summary = payment_df.groupby(['المنزل', 'الحالة'])['الكمية'].sum().unstack(fill_value=0)
-            st.write("📊 مجموع ما أنجزه كل منزل هذا الشهر:")
-            st.dataframe(summary, use_container_width=True)
-            
-            st.divider()
-            st.write("📝 سجل الحركات التاريخي للدفع:")
-            st.dataframe(payment_df[['التاريخ', 'المنزل', 'المنتج', 'الحالة', 'الكمية']], use_container_width=True)
+        st.subheader("💰 ملخص العمليات المنجزة للدفع")
+        payment_summary = df[df['الحالة'].isin(['ct', 'fn'])].groupby(['المنزل', 'الحالة'])['الكمية'].sum().unstack(fill_value=0)
+        st.dataframe(payment_summary, use_container_width=True)
 
 except Exception as e:
-    st.error(f"تأكد من أعمدة الإكسل (المنزل، المنتج، الكمية، الحالة): {e}")
-    
+    st.error(f"خطأ في البيانات: {e}")
+        
