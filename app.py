@@ -8,9 +8,30 @@ st.set_page_config(page_title="Bébé Sympa - الرقابة الذكية", layo
 
 st.markdown("""
     <style>
-    .stApp { background-color: #0e1117; color: white; direction: rtl; }
+    .stApp {
+        background-color: #0e1117;
+        color: white;
+        direction: rtl;
+        background-image: url("https://raw.githubusercontent.com/hosinmariya-netizen/Mixer-Packaging/main/images%20(5)%20(5).jpeg");
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
+    }
+    .stApp::before {
+        content: "";
+        position: fixed;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        background-color: rgba(14, 17, 23, 0.90);
+        z-index: 0;
+    }
     .stButton>button { border-radius: 10px; }
     .warning-text { color: #ff4b4b; font-weight: bold; padding: 10px; border: 1px solid #ff4b4b; border-radius: 5px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { background-color: #333; color: white; padding: 6px; text-align: center; }
+    tr:nth-child(odd) { background-color: #D6C1A6; color: black; }
+    tr:nth-child(even) { background-color: #ffa500; color: black; }
+    td { padding: 5px 8px; text-align: center; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -32,6 +53,9 @@ def append_row(row):
     sheet = get_sheet()
     sheet.append_row(row)
 
+def update_row_qty(sheet, row_index, new_qty):
+    sheet.update_cell(row_index + 2, 1, new_qty)
+
 try:
     df = get_data()
     df.columns = df.columns.str.strip()
@@ -45,7 +69,7 @@ try:
             st.cache_resource.clear()
             st.rerun()
 
-    tab1, tab2, tab3 = st.tabs(["🏠 استلام من المنازل", "🏢 المخزن النهائي", "💰 كشف الحساب"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏠 استلام من المنازل", "📤 إخراج للمنزل", "🏢 المخزن النهائي", "📋 History", "💰 كشف الحساب"])
 
     with tab1:
         st.subheader("📦 إدارة المستلمات من المنازل")
@@ -56,15 +80,18 @@ try:
             prods = home_data['المنتج'].unique()
 
             pending_count = 0
+            total_remaining = 0
             for prod in prods:
                 p_data = home_data[home_data['المنتج'] == prod]
                 total_out = p_data[p_data['الحالة'].isin(['ct', 'fn'])]['الكمية'].sum()
                 already_in = p_data[p_data['الحالة'] == 'st']['الكمية'].sum()
-                if total_out - already_in > 0:
+                remaining = total_out - already_in
+                if remaining > 0:
                     pending_count += 1
+                    total_remaining += remaining
 
             badge = f"🟢 {pending_count}" if pending_count > 0 else "🔴 0"
-            label = f"🏠 منزل: {home}  {badge}"
+            label = f"🏠 منزل: {home}  {badge}  |  📦 {int(total_remaining)}"
 
             with st.expander(label):
                 for prod in prods:
@@ -97,12 +124,90 @@ try:
                         st.caption(f"✅ {prod}: تم استلام كامل الكمية الصادرة.")
 
     with tab2:
-        st.subheader("🏢 رصيد الشركة الحالي")
-        stock_final = df[df['الحالة'] == 'st'].groupby('المنتج')['الكمية'].sum().reset_index()
-        stock_final.columns = ['اسم المنتج', 'المخزن (st)']
-        st.table(stock_final)
+        st.subheader("📤 إخراج بضاعة للمنزل")
+        homes = [h for h in df['المنزل'].unique() if h != "-"]
+        all_prods = df['المنتج'].unique().tolist()
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            out_home = st.selectbox("اختر المنزل", homes, key="out_home")
+        with col2:
+            out_prod = st.selectbox("اختر المنتج", all_prods, key="out_prod")
+        with col3:
+            out_qty = st.number_input("الكمية", min_value=1, step=1, key="out_qty")
+
+        out_status = st.radio("نوع الإخراج", ["ct", "fn"], horizontal=True, key="out_status")
+
+        if st.button("📤 تأكيد الإخراج"):
+            now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+            append_row([out_qty, out_prod, out_home, now, out_status])
+            st.cache_resource.clear()
+            st.success(f"تم تسجيل إخراج {int(out_qty)} من {out_prod} للمنزل {out_home}")
+            st.rerun()
 
     with tab3:
+        st.subheader("🏢 رصيد الشركة الحالي")
+        stock_in = df[df['الحالة'] == 'st'].groupby('المنتج')['الكمية'].sum()
+        stock_out = df[df['الحالة'] == 'cl'].groupby('المنتج')['الكمية'].sum()
+        stock_final = stock_in.subtract(stock_out, fill_value=0).reset_index()
+        stock_final.columns = ['اسم المنتج', 'المخزن']
+        stock_final['المخزن'] = stock_final['المخزن'].astype(int)
+
+        for _, row in stock_final.iterrows():
+            col1, col2, col3 = st.columns([3, 1, 1])
+            with col1:
+                st.write(f"**{row['اسم المنتج']}**")
+            with col2:
+                st.write(f"{row['المخزن']}")
+            with col3:
+                if st.button(f"✅ تسليم للعميل", key=f"cl_{row['اسم المنتج']}"):
+                    qty_to_remove = st.session_state.get(f"cl_qty_{row['اسم المنتج']}", 0)
+                    if qty_to_remove > 0:
+                        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                        append_row([qty_to_remove, row['اسم المنتج'], "-", now, "cl"])
+                        st.cache_resource.clear()
+                        st.rerun()
+            st.number_input("الكمية المسلمة للعميل", min_value=0, step=1, key=f"cl_qty_{row['اسم المنتج']}")
+            st.divider()
+
+    with tab4:
+        st.subheader("📋 سجل العمليات")
+        history = df[df['الحالة'].isin(['ct', 'fn', 'st'])].copy()
+        history['الكمية'] = history['الكمية'].astype(int)
+
+        rows_html = ""
+        for i, (idx, row) in enumerate(history.iterrows()):
+            color = "#D6C1A6" if i % 2 == 0 else "#ffa500"
+            checked = st.checkbox("↩️", key=f"hist_{idx}")
+            if checked:
+                sheet = get_sheet()
+                sheet.update_cell(idx + 2, 1, 0)
+                st.cache_resource.clear()
+                st.success(f"تم إرجاع الكمية للصفر")
+                st.rerun()
+            rows_html += f"""
+            <tr style="background-color:{color}">
+                <td>{row['المنزل']}</td>
+                <td>{row['المنتج']}</td>
+                <td>{row['الحالة']}</td>
+                <td>{row['الكمية']}</td>
+                <td>{row.get('التاريخ','')}</td>
+            </tr>"""
+
+        st.markdown(f"""
+        <table>
+            <tr>
+                <th>المنزل</th>
+                <th>المنتج</th>
+                <th>النوع</th>
+                <th>الكمية</th>
+                <th>التاريخ</th>
+            </tr>
+            {rows_html}
+        </table>
+        """, unsafe_allow_html=True)
+
+    with tab5:
         st.subheader("💰 ملخص العمليات المنجزة للدفع")
         payment_summary = df[df['الحالة'].isin(['ct', 'fn'])].groupby(['المنزل', 'الحالة'])['الكمية'].sum().unstack(fill_value=0)
         st.dataframe(payment_summary, use_container_width=True)
