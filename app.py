@@ -69,45 +69,12 @@ def get_data():
     return pd.DataFrame()
 
 def get_clients():
-    """جلب قائمة العملاء من ورقة منفصلة أو من البيانات"""
-    sheet = get_sheet()
-    if sheet:
-        try:
-            # محاولة فتح ورقة العملاء
-            clients_sheet = sheet.client.open_by_url("https://docs.google.com/spreadsheets/d/1JZUGpM6RBYDiLfX1Z5qKH5C6E2pfaRHF6dCDWmGXTso").worksheet("العملاء")
-            data = clients_sheet.get_all_records()
-            clients_df = pd.DataFrame(data)
-            return clients_df
-        except:
-            # إذا لم توجد ورقة عملاء، نستخدم العملاء الموجودين في البيانات الرئيسية
-            df = get_data()
-            if not df.empty:
-                unique_clients = df['المنزل'].unique()
-                clients_df = pd.DataFrame({
-                    'اسم العميل': unique_clients,
-                    'النوع': ''  # فارغ ليختار المستخدم
-                })
-                return clients_df
-            return pd.DataFrame(columns=['اسم العميل', 'النوع'])
-    return pd.DataFrame(columns=['اسم العميل', 'النوع'])
-
-def add_client(client_name, client_type):
-    """إضافة عميل جديد"""
-    sheet = get_sheet()
-    if sheet:
-        try:
-            clients_sheet = sheet.client.open_by_url("https://docs.google.com/spreadsheets/d/1JZUGpM6RBYDiLfX1Z5qKH5C6E2pfaRHF6dCDWmGXTso").worksheet("العملاء")
-            clients_sheet.append_row([client_name, client_type])
-        except:
-            # إنشاء ورقة عملاء جديدة إذا لم توجد
-            clients_sheet = sheet.client.open_by_url("https://docs.google.com/spreadsheets/d/1JZUGpM6RBYDiLfX1Z5qKH5C6E2pfaRHF6dCDWmGXTso").add_worksheet(title="العملاء", rows=100, cols=2)
-            clients_sheet.append_row(["اسم العميل", "النوع"])
-            clients_sheet.append_row([client_name, client_type])
-
-def update_client(old_name, new_name, new_type):
-    """تعديل عميل"""
-    # هذه وظيفة متقدمة تحتاج إلى معالجة خاصة
-    pass
+    """جلب قائمة العملاء من البيانات"""
+    df = get_data()
+    if not df.empty:
+        unique_clients = [h for h in df['المنزل'].unique() if h not in ["", "-"]]
+        return unique_clients
+    return []
 
 def append_row(row):
     sheet = get_sheet()
@@ -118,11 +85,9 @@ def append_row(row):
 try:
     if "df" not in st.session_state:
         st.session_state.df = get_data()
-    if "clients_df" not in st.session_state:
-        st.session_state.clients_df = get_clients()
     
     df = st.session_state.df
-    clients_df = st.session_state.clients_df
+    clients_list = get_clients()
 
     # الهيدر
     col_t, col_ref = st.columns([4, 1])
@@ -133,7 +98,6 @@ try:
         if st.button("🔄 تحديث", use_container_width=True):
             st.cache_resource.clear()
             st.session_state.df = get_data()
-            st.session_state.clients_df = get_clients()
             st.rerun()
 
     # إحصائيات سريعة
@@ -151,64 +115,20 @@ try:
 
     tabs = st.tabs(["👥 العملاء", "📥 دخول", "📤 إخراج", "🏢 المخزن", "💰 كشف حساب", "📜 History", "✅ إنجاز"])
 
-    # --- TAB 0: إدارة العملاء (جديد) ---
+    # --- TAB 0: إدارة العملاء ---
     with tabs[0]:
         st.subheader("👥 إدارة العملاء")
         
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("### ➕ إضافة عميل جديد")
-            with st.form("add_client_form"):
-                new_client_name = st.text_input("اسم العميل")
-                new_client_type = st.selectbox("نوع العميل", ["ct (كامل)", "fn (ناقص)"])
-                new_client_type_value = "ct" if "ct" in new_client_type else "fn"
-                
-                if st.form_submit_button("إضافة عميل", use_container_width=True):
-                    if new_client_name.strip():
-                        # التحقق من عدم وجود العميل مسبقاً
-                        if new_client_name not in clients_df['اسم العميل'].values:
-                            add_client(new_client_name, new_client_type_value)
-                            st.session_state.clients_df = get_clients()
-                            st.success(f"✅ تم إضافة العميل {new_client_name}")
-                            st.rerun()
-                        else:
-                            st.warning("⚠️ هذا العميل موجود مسبقاً")
-                    else:
-                        st.warning("⚠️ يرجى إدخال اسم العميل")
-        
-        with col2:
-            st.markdown("### 📋 قائمة العملاء")
-            if not clients_df.empty and len(clients_df) > 0:
-                # عرض العملاء مع ألوان حسب النوع
-                clients_display = clients_df.copy()
-                clients_display['النوع'] = clients_display['النوع'].map({
-                    'ct': '🟢 كامل (CT)',
-                    'fn': '🟡 ناقص (FN)'
-                }).fillna('⚪ غير محدد')
-                st.dataframe(clients_display, use_container_width=True, hide_index=True)
-                
-                # إحصائيات العملاء
-                col_a, col_b = st.columns(2)
-                with col_a:
-                    ct_count = len(clients_df[clients_df['النوع'] == 'ct'])
-                    st.info(f"🟢 عملاء CT (كامل): {ct_count}")
-                with col_b:
-                    fn_count = len(clients_df[clients_df['النوع'] == 'fn'])
-                    st.warning(f"🟡 عملاء FN (ناقص): {fn_count}")
-            else:
-                st.info("لا يوجد عملاء مضافون حالياً")
-        
-        # عرض العملاء من البيانات الرئيسية
-        st.markdown("---")
         st.markdown("### 🏠 العملاء الموجودون في النظام")
-        if not df.empty:
-            existing_clients = df['المنزل'].unique()
-            st.write(f"عدد العملاء النشطين: {len(existing_clients)}")
-            for client in existing_clients:
+        if clients_list:
+            st.write(f"عدد العملاء النشطين: {len(clients_list)}")
+            for client in clients_list:
                 st.text(f"• {client}")
         else:
             st.info("لا يوجد عملاء في النظام بعد")
+        
+        st.markdown("---")
+        st.info("💡 ملاحظة: يمكن إضافة عملاء جدد عن طريق تسجيل دخول أو خروج باسم عميل جديد")
 
     # --- TAB 1: دخول ---
     with tabs[1]:
@@ -216,30 +136,31 @@ try:
         with st.form("in_form"):
             f1, f2, f3 = st.columns(3)
             
-            # استخدام قائمة العملاء من ورقة العملاء
-            if not clients_df.empty and len(clients_df) > 0:
-                homes = clients_df['اسم العميل'].tolist()
-            elif not df.empty:
+            if not df.empty:
                 homes = [h for h in df['المنزل'].unique() if h not in ["", "-"]]
+                products = [p for p in df['المنتج'].unique() if p not in ["", "-"]]
             else:
                 homes = []
-            
-            products = [p for p in df['المنتج'].unique() if p not in ["", "-"]] if not df.empty else []
+                products = []
 
             in_home = f1.selectbox("اسم العميل", options=homes if homes else ["لا توجد بيانات"], key="in_home")
             in_product = f2.selectbox("اسم المنتج", options=products if products else ["لا توجد بيانات"], key="in_product")
             in_qty = f3.number_input("الكمية", min_value=1, key="in_qty")
+            
+            # إضافة خيار لإدخال عميل جديد
+            new_client = st.text_input("أو أدخل اسم عميل جديد (اختياري)")
             
             col_btn1, col_btn2, col_btn3 = st.columns([1,2,1])
             with col_btn2:
                 submitted = st.form_submit_button("تسجيل الدخول", use_container_width=True)
             
             if submitted:
-                if in_qty > 0 and in_product.strip() and in_home.strip() and in_home != "لا توجد بيانات":
-                    append_row([in_qty, in_product, in_home, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "st"])
+                final_client = new_client.strip() if new_client.strip() else in_home
+                if in_qty > 0 and in_product.strip() and final_client != "لا توجد بيانات" and final_client:
+                    append_row([in_qty, in_product, final_client, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "st"])
                     st.cache_resource.clear()
                     st.session_state.df = get_data()
-                    st.success("✅ تم تسجيل الدخول بنجاح")
+                    st.success(f"✅ تم تسجيل الدخول بنجاح للعميل: {final_client}")
                     st.rerun()
                 else:
                     st.warning("⚠️ يرجى إدخال جميع البيانات بشكل صحيح")
@@ -250,32 +171,18 @@ try:
         with st.form("out_form"):
             f1, f2, f3 = st.columns(3)
             
-            # استخدام قائمة العملاء من ورقة العملاء
-            if not clients_df.empty and len(clients_df) > 0:
-                homes = clients_df['اسم العميل'].tolist()
-            elif not df.empty:
+            if not df.empty:
                 homes = [h for h in df['المنزل'].unique() if h not in ["", "-"]]
+                products = [p for p in df['المنتج'].unique() if p not in ["", "-"]]
             else:
                 homes = []
-            
-            products = [p for p in df['المنتج'].unique() if p not in ["", "-"]] if not df.empty else []
+                products = []
 
             o_h = f1.selectbox("اسم العميل", options=homes if homes else ["لا توجد بيانات"])
             o_p = f2.selectbox("اسم المنتج", options=products if products else ["لا توجد بيانات"])
             o_q = f3.number_input("الكمية", min_value=1)
-            
-            # تحديد نوع العميل تلقائياً من قائمة العملاء
-            default_type = "ct"
-            if not clients_df.empty and o_h in clients_df['اسم العميل'].values:
-                client_type = clients_df[clients_df['اسم العميل'] == o_h]['النوع'].values[0]
-                if client_type == 'ct':
-                    st.info(f"🟢 هذا العميل من نوع CT (كامل)")
-                    default_type = "ct"
-                elif client_type == 'fn':
-                    st.warning(f"🟡 هذا العميل من نوع FN (ناقص)")
-                    default_type = "fn"
-            
-            o_s_value = default_type
+            o_s = st.radio("نوع الخروج", ["ct (منزل كامل)", "fn (منزل ناقص)"], horizontal=True)
+            o_s_value = "ct" if o_s.startswith("ct") else "fn"
             
             col_btn1, col_btn2, col_btn3 = st.columns([1,2,1])
             with col_btn2:
@@ -355,32 +262,26 @@ try:
             history_df['التاريخ'] = pd.to_datetime(history_df['التاريخ'], errors='coerce')
             history_df['التاريخ'] = history_df['التاريخ'].dt.strftime('%Y-%m-%d %H:%M:%S')
             
-            # إعادة تسمية أعمدة الحالة للتوضيح
+            # إضافة عمود نوع العملية للعرض
             history_df['نوع العملية'] = history_df['الحالة'].map({
-                'st': 'دخول',
-                'ct': 'خروج كامل',
-                'fn': 'خروج ناقص'
+                'st': '📥 دخول',
+                'ct': '📤 خروج كامل',
+                'fn': '📤 خروج ناقص'
             }).fillna(history_df['الحالة'])
+            
+            # إنشاء DataFrame للعرض مع الألوان
+            display_df = history_df[['المنزل', 'المنتج', 'الكمية', 'نوع العملية', 'التاريخ']].copy()
             
             # تلوين الصفوف حسب نوع العملية
             def color_rows(row):
-                if row['الحالة'] == 'st':
+                if row['نوع العملية'].startswith('📥'):
                     return ['background-color: #4CAF50; color: white'] * len(row)
                 else:
                     return ['background-color: #ff4b4b; color: white'] * len(row)
             
             # عرض الجدول بالألوان
-            st.dataframe(
-                history_df[['المنزل', 'المنتج', 'الكمية', 'نوع العملية', 'التاريخ']].style.apply(color_rows, axis=1),
-                use_container_width=True,
-                column_config={
-                    "المنزل": "العميل",
-                    "المنتج": "المنتج", 
-                    "الكمية": st.column_config.NumberColumn("الكمية", format="%d"),
-                    "نوع العملية": "نوع العملية",
-                    "التاريخ": "التاريخ"
-                }
-            )
+            styled_df = display_df.style.apply(color_rows, axis=1)
+            st.dataframe(styled_df, use_container_width=True)
             
             # إحصائيات سريعة
             col_stat1, col_stat2 = st.columns(2)
@@ -392,7 +293,7 @@ try:
                 st.error(f"📤 عدد عمليات الخروج: {total_out}")
             
             # زر لتصدير البيانات
-            csv = history_df[['المنزل', 'المنتج', 'الكمية', 'نوع العملية', 'التاريخ']].to_csv(index=False).encode('utf-8-sig')
+            csv = history_df[['المنزل', 'المنتج', 'الكمية', 'الحالة', 'التاريخ']].to_csv(index=False).encode('utf-8-sig')
             st.download_button(
                 label="📥 تحميل السجل كـ CSV",
                 data=csv,
@@ -406,49 +307,58 @@ try:
     with tabs[6]:
         st.subheader("✅ إنجاز العملاء")
         if not df.empty:
-            summary = df.groupby("المنزل").agg(
-                عدد_المنتجات=("المنتج", "nunique"),
-                مجموع_الكمية=("الكمية", "sum")
-            ).reset_index()
+            # حساب إجمالي الدخول لكل عميل
+            total_in = df[df['الحالة'] == 'st'].groupby('المنزل')['الكمية'].sum()
+            # حساب إجمالي الخروج لكل عميل
+            total_out = df[df['الحالة'].isin(['ct', 'fn'])].groupby('المنزل')['الكمية'].sum()
             
-            # تحويل إلى أعداد صحيحة
-            summary['مجموع_الكمية'] = summary['مجموع_الكمية'].fillna(0).astype(int)
-            summary['عدد_المنتجات'] = summary['عدد_المنتجات'].fillna(0).astype(int)
-
-            # إضافة نوع العميل إن وجد
-            if not clients_df.empty:
-                summary = summary.merge(clients_df, left_on='المنزل', right_on='اسم العميل', how='left')
-                summary['النوع'] = summary['النوع'].fillna('غير محدد')
-                summary['النوع'] = summary['النوع'].map({
-                    'ct': '🟢 كامل',
-                    'fn': '🟡 ناقص'
-                }).fillna('⚪ غير محدد')
-            else:
-                summary['النوع'] = ''
-
-            # تلوين الصفوف التي مجموعها صفر باللون الأحمر
+            # دمج البيانات
+            summary = pd.DataFrame({
+                'العميل': total_in.index.union(total_out.index)
+            })
+            summary['مجموع الدخول'] = summary['العميل'].map(total_in).fillna(0).astype(int)
+            summary['مجموع الخروج'] = summary['العميل'].map(total_out).fillna(0).astype(int)
+            summary['الرصيد'] = (summary['مجموع الدخول'] - summary['مجموع الخروج']).astype(int)
+            summary['عدد المنتجات'] = df.groupby('المنزل')['المنتج'].nunique().map(summary.set_index('العميل')['عدد المنتجات']).fillna(0).astype(int)
+            
+            # إعادة ترتيب الأعمدة
+            summary = summary[['العميل', 'عدد المنتجات', 'مجموع الدخول', 'مجموع الخروج', 'الرصيد']]
+            
+            # تلوين الصفوف التي رصيدها صفر
             def highlight_zero(row):
-                if row['مجموع_الكمية'] == 0:
+                if row['الرصيد'] == 0:
+                    return ['background-color: #4CAF50; color: white; font-weight: bold'] * len(row)
+                elif row['الرصيد'] < 0:
                     return ['background-color: #ff4b4b; color: white; font-weight: bold'] * len(row)
                 return [''] * len(row)
 
             st.dataframe(
-                summary[['المنزل', 'عدد_المنتجات', 'مجموع_الكمية', 'النوع']].style.apply(highlight_zero, axis=1),
+                summary.style.apply(highlight_zero, axis=1),
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "المنزل": "العميل",
-                    "عدد_المنتجات": st.column_config.NumberColumn("عدد المنتجات", format="%d"),
-                    "مجموع_الكمية": st.column_config.NumberColumn("مجموع الكمية", format="%d"),
-                    "النوع": "نوع العميل"
+                    "العميل": "العميل",
+                    "عدد المنتجات": st.column_config.NumberColumn("عدد المنتجات", format="%d"),
+                    "مجموع الدخول": st.column_config.NumberColumn("مجموع الدخول", format="%d"),
+                    "مجموع الخروج": st.column_config.NumberColumn("مجموع الخروج", format="%d"),
+                    "الرصيد": st.column_config.NumberColumn("الرصيد", format="%d")
                 }
             )
             
             # إضافة إحصائية سريعة
             st.markdown("---")
-            total_homes = len(summary)
-            completed_homes = len(summary[summary['مجموع_الكمية'] == 0])
-            st.info(f"📊 من أصل {total_homes} عميل، {completed_homes} عميل منجز (مجموع الكمية = 0)")
+            total_clients = len(summary)
+            completed_clients = len(summary[summary['الرصيد'] == 0])
+            negative_clients = len(summary[summary['الرصيد'] < 0])
+            positive_clients = len(summary[summary['الرصيد'] > 0])
+            
+            col_stat1, col_stat2, col_stat3 = st.columns(3)
+            with col_stat1:
+                st.success(f"✅ عملاء منجزون (رصيد 0): {completed_clients}")
+            with col_stat2:
+                st.warning(f"⚠️ عملاء عليهم دين (رصيد -): {negative_clients}")
+            with col_stat3:
+                st.info(f"📦 عملاء لديهم رصيد: {positive_clients}")
             
         else:
             st.info("لا توجد بيانات حالياً.")
