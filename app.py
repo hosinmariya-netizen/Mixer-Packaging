@@ -4,23 +4,30 @@ from google.oauth2.service_account import Credentials
 import pandas as pd
 import datetime
 
-# 1. إعدادات الصفحة والتنسيق
+# 1. إعدادات الصفحة والخلفية (إعادة الصورة)
 st.set_page_config(page_title="Bébé Sympa", layout="wide")
 
-st.markdown("""
+# استبدل رابط الصورة برابط مباشر يعمل إذا أردت تغييرها
+bg_img = "https://www.transparenttextures.com/patterns/dark-matter.png" 
+
+st.markdown(f"""
     <style>
-    .stApp { background-color: #0e1117; color: white; direction: rtl; }
-    [data-testid="stDataFrame"] { border: 1px solid #ffa500; border-radius: 10px; }
-    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
-    .stTabs [data-baseweb="tab"] { 
-        background-color: #1e2124; 
-        border-radius: 5px; 
-        padding: 10px;
-    }
+    .stApp {{
+        background-image: url("{bg_img}");
+        background-color: #0e1117;
+        color: white;
+        direction: rtl;
+    }}
+    /* تلوين الخانات داخل الجداول */
+    [data-testid="stDataFrame"] {{
+        background: rgba(30, 33, 36, 0.9);
+        border: 2px solid #ffa500;
+        border-radius: 15px;
+    }}
     </style>
     """, unsafe_allow_html=True)
 
-# 2. الدوال البرمجية (الاتصال والبيانات)
+# 2. الدوال البرمجية الأساسية
 @st.cache_resource
 def get_sheet():
     try:
@@ -41,23 +48,22 @@ def load_data():
         return df
     return pd.DataFrame()
 
-def save_new_row(row_list):
+def save_entry(row):
     s = get_sheet()
     if s:
-        s.append_row(row_list)
+        s.append_row(row)
         st.cache_resource.clear()
 
-# 3. بناء الواجهة البرمجية (الأقسام الخمسة)
+# 3. بناء الواجهة (الأقسام الخمسة)
 try:
     df = load_data()
-    
-    st.title("🛡️ نظام الرقابة المتكامل")
-    
+    st.title("🛡️ نظام الرقابة الشامل - Bébé Sympa")
+
     tabs = st.tabs(["📥 استلام من منزل", "📤 إرسال جديد", "🏢 المخزن", "💰 كشف حساب", "📜 السجل (History)"])
 
-    # --- 1. نافذة الاستلام (المنازل) ---
+    # --- نافذة الاستلام ---
     with tabs[0]:
-        st.subheader("📦 استلام بضاعة جاهزة")
+        st.subheader("🏠 استلام بضاعة جاهزة")
         if not df.empty:
             homes = [h for h in df['المنزل'].unique() if h not in ["", "-"]]
             for h in homes:
@@ -68,81 +74,25 @@ try:
                         in_q = h_df[(h_df['المنتج'] == prd) & (h_df['الحالة'] == 'st')]['الكمية'].sum()
                         rem = out_q - in_q
                         if rem > 0:
-                            st.write(f"**{prd}** (المتبقي عند المنزل: {int(rem)})")
-                            q_val = st.number_input(f"الكمية المستلمة من {prd}", min_value=0, key=f"in_{h}_{prd}")
-                            if st.button("تأكيد الاستلام ✅", key=f"btn_{h}_{prd}"):
-                                save_new_row([q_val, prd, h, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "st"])
+                            st.write(f"**{prd}** (المتبقي بذمتهم: {int(rem)})")
+                            q = st.number_input(f"استلام {prd}", min_value=0, key=f"in_{h}_{prd}")
+                            if st.button("حفظ ✅", key=f"b_{h}_{prd}"):
+                                save_entry([q, prd, h, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "st"])
                                 st.rerun()
 
-    # --- 2. نافذة الإرسال (الإخراج) ---
+    # --- نافذة الإرسال ---
     with tabs[1]:
-        st.subheader("📤 إرسال بضاعة إلى منزل")
-        with st.form("send_form"):
-            f_home = st.text_input("اسم المنزل")
-            f_prod = st.text_input("اسم المنتج")
-            f_qty = st.number_input("الكمية المرسلة", min_value=1)
-            f_stat = st.selectbox("نوع العملية", ["ct", "fn"])
+        st.subheader("📤 إرسال بضاعة للمنازل")
+        with st.form("form_out"):
+            f_h = st.text_input("اسم المنزل")
+            f_p = st.text_input("اسم المنتج")
+            f_q = st.number_input("الكمية", min_value=1)
+            f_s = st.selectbox("الحالة", ["ct", "fn"])
             if st.form_submit_button("إرسال الآن 🚀"):
-                save_new_row([f_qty, f_prod, f_home, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), f_stat])
+                save_entry([f_q, f_p, f_h, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), f_s])
                 st.rerun()
 
-    # --- 3. نافذة المخزن ---
+    # --- نافذة المخزن (مع التلوين البصري) ---
     with tabs[2]:
-        st.subheader("🏢 رصيد المخزن الحالي")
-        if not df.empty:
-            st_sum = df[df['الحالة'] == 'st'].groupby('المنتج')['الكمية'].sum()
-            cl_sum = df[df['الحالة'] == 'cl'].groupby('المنتج')['الكمية'].sum()
-            stock = (st_sum - cl_sum).fillna(st_sum).reset_index()
-            st.dataframe(stock[stock['الكمية'] > 0], use_container_width=True)
-
-    # --- 4. كشف الحساب ---
-    with tabs[3]:
-        st.subheader("💰 ملخص الكميات لكل منزل")
-        if not df.empty:
-            pivot = df.pivot_table(index='المنزل', columns='الحالة', values='الكمية', aggfunc='sum', fill_value=0)
-            st.dataframe(pivot, use_container_width=True)
-
-    # --- 5. السجل (History) - التعديل المباشر والتصفير ---
-    with tabs[4]:
-        st.subheader("📜 سجل العمليات (تعديل مباشر + سحب أفقي)")
-        if not df.empty:
-            # عرض الجدول مع السماح بتعديل الكمية فقط
-            history_display = df.iloc[::-1].head(100).copy()
-            
-            edited_df = st.data_editor(
-                history_display,
-                column_config={
-                    "الكمية": st.column_config.NumberColumn("🔢 الكمية", width="small", required=True),
-                    "المنزل": st.column_config.TextColumn("🏠 المنزل", width="medium", disabled=True),
-                    "المنتج": st.column_config.TextColumn("📦 المنتج", width="medium", disabled=True),
-                    "الحالة": st.column_config.TextColumn("📍 الحالة", width="small", disabled=True),
-                    "التاريخ": st.column_config.TextColumn("📅 التاريخ", width="medium", disabled=True),
-                },
-                hide_index=True,
-                use_container_width=False, # هذا يسمح بالسحب الأفقي
-                key="history_editor"
-            )
-            
-            if st.button("💾 حفظ التعديلات في الإكسل"):
-                s = get_sheet()
-                # إعادة كتابة البيانات المعدلة في الإكسل
-                full_df = df.copy()
-                full_df.iloc[edited_df.index] = edited_df
-                s.update([full_df.columns.values.tolist()] + full_df.values.tolist())
-                st.success("تم الحفظ!")
-                st.cache_resource.clear()
-                st.rerun()
-
-            st.divider()
-            # زر تصفير سريع
-            st.subheader("❌ تصفير سريع لعملية")
-            idx = st.selectbox("اختر سطر لتصفيره", options=history_display.index, 
-                               format_func=lambda x: f"{history_display.loc[x, 'المنزل']} - {history_display.loc[x, 'المنتج']}")
-            if st.button("تصفير السطر المختار ✓"):
-                target = history_display.loc[idx]
-                save_new_row([target['الكمية'], target['المنتج'], target['المنزل'], datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "st"])
-                st.rerun()
-
-except Exception as e:
-    st.error(f"حدث خطأ: {e}")
-    
+        st.subheader("🏢 رصيد المخزن")
+        if not df.
