@@ -48,3 +48,4 @@ with tab1:
 
 with tab2:
     st.dataframe(df, use_container_width=True)
+    
