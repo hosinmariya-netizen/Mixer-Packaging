@@ -4,57 +4,57 @@ from google.oauth2.service_account import Credentials
 import pandas as pd
 import datetime
 
-# 1. إعدادات الصفحة
+# 1. إعدادات الصفحة والتصميم
 st.set_page_config(page_title="Bébé Sympa", layout="wide")
 
-# 2. تصميم CSS لإجبار الجدول على التمدد أفقياً وتثبيت الرأس
 st.markdown("""
     <style>
     .stApp { background-color: #0e1117; color: white; direction: rtl; }
     
-    /* الحاوية السحرية التي تمنع التكسير وتسمح بالسحب الجانبي */
-    .mega-scroll {
+    /* حاوية التمرير الأفقي والرأسي */
+    .table-viewport {
+        overflow-x: auto;
+        max-height: 550px;
+        border: 1px solid #444;
+        background: #1e2124;
+    }
+    
+    /* إجبار الجدول على عرض محدد لضمان السحب الجانبي دون تمطيط */
+    .fixed-table {
+        min-width: 900px;
         width: 100%;
-        overflow-x: auto; /* يسمح بالسحب يميناً ويساراً */
-        overflow-y: auto;
-        max-height: 600px;
-        border: 2px solid #444;
-    }
-
-    table {
-        width: auto; /* لا تجبره على عرض الشاشة */
-        min-width: 1000px; /* إجبار الجدول أن يكون عريضاً جداً */
         border-collapse: collapse;
-        white-space: nowrap; /* منع النص من النزول لسطر جديد */
     }
-
-    th {
+    
+    /* تثبيت الرأس البرتقالي */
+    .sticky-header th {
         position: sticky;
         top: 0;
         background-color: #ffa500 !important;
         color: black !important;
-        z-index: 999;
-        padding: 15px;
+        z-index: 100;
+        padding: 12px;
+        border: 1px solid #444;
+        white-space: nowrap;
+    }
+    
+    /* ضبط خلايا المحتوى */
+    .data-row td {
         border: 1px solid #444;
         text-align: center;
+        padding: 0px; /* لإعطاء مساحة للمدخلات */
+        height: 50px;
     }
-
-    td {
-        padding: 10px;
-        border: 1px solid #444;
-        text-align: center;
-        vertical-align: middle;
-    }
-
+    
     .row-even { background-color: #D6C1A6; color: black; }
     .row-odd { background-color: #1e2124; color: white; }
     
-    /* تنسيق خاص للأزرار داخل الجدول */
-    .btn-zero { background-color: #ff4b4b; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; }
+    /* تنسيق التاريخ ليظهر في سطرين صغيرين */
+    .time-cell { font-size: 11px; line-height: 1; }
     </style>
     """, unsafe_allow_html=True)
 
-# 3. الدوال البرمجية (Google Sheets)
+# 2. الدوال البرمجية (Google Sheets)
 @st.cache_resource
 def get_sheet():
     try:
@@ -67,71 +67,81 @@ def get_sheet():
 
 def get_data():
     s = get_sheet()
-    return pd.DataFrame(s.get_all_records()) if s else pd.DataFrame()
+    if s:
+        df = pd.DataFrame(s.get_all_records())
+        df.columns = df.columns.str.strip()
+        return df
+    return pd.DataFrame()
 
-def update_val(row_idx, new_q):
+def update_val(row_idx, col_name, val):
     s = get_sheet()
     if s:
-        # نفترض أن "الكمية" هي العمود رقم 1 في الإكسل
-        s.update_cell(row_idx + 2, 1, new_q)
+        headers = s.row_values(1)
+        col_idx = headers.index(col_name) + 1
+        s.update_cell(row_idx + 2, col_idx, val)
         st.cache_resource.clear()
         st.rerun()
 
-# 4. بناء الواجهة
+# 3. الواجهة البرمجية
 try:
     df = get_data()
-    st.title("🛡️ الرقابة - جدول أفقي")
+    if not df.empty:
+        df['الكمية'] = pd.to_numeric(df['الكمية'], errors='coerce').fillna(0)
+
+    st.title("🛡️ الرقابة - نظام الجداول")
     
-    tabs = st.tabs(["🏠 الإدارة", "📜 History"])
+    tabs = st.tabs(["📊 الإحصائيات", "📜 السجل (History)"])
 
     with tabs[1]:
-        if not df.empty:
-            st.write("⬅️ اسحب الجدول لليسار برؤية باقي البيانات")
+        st.write("⬅️ اسحب يميناً ويساراً للتنقل في الجدول")
+        
+        # حاوية الجدول
+        st.markdown('<div class="table-viewport">', unsafe_allow_html=True)
+        
+        # عرض الرأس البرتقالي الثابت
+        # نستخدم columns لمحاكاة الصف لكي تتماشى مع المدخلات التفاعلية
+        header_cols = st.columns([0.7, 1.2, 1, 1.5, 2, 2.5])
+        labels = ["تصفير", "الكمية", "الحالة", "المنتج", "المنزل", "التاريخ"]
+        for col, label in zip(header_cols, labels):
+            col.markdown(f'<div style="background:#ffa500; color:black; padding:10px; border:1px solid #444; text-align:center; font-weight:bold; position:sticky; top:0; z-index:10;">{label}</div>', unsafe_allow_html=True)
+        
+        # عرض البيانات (آخر 40 سطر)
+        recent = df.tail(40).iloc[::-1]
+        
+        for i, row in recent.iterrows():
+            bg = "#D6C1A6" if i % 2 == 0 else "#1e2124"
+            tc = "black" if i % 2 == 0 else "white"
             
-            # بناء الجدول يدوياً بـ HTML لضمان عدم التلاعب به من قبل ستريمليت
-            recent = df.tail(50).iloc[::-1]
+            # كل سطر عبارة عن مجموعة أعمدة لضمان بقائها أفقية
+            r_cols = st.columns([0.7, 1.2, 1, 1.5, 2, 2.5])
             
-            html_table = '<div class="mega-scroll"><table>'
-            html_table += '<thead><tr><th>تصفير</th><th>الكمية</th><th>الحالة</th><th>المنتج</th><th>المنزل</th><th>التاريخ</th></tr></thead>'
-            html_table += '<tbody>'
+            # 1. زر التصفير (تعديل مباشر)
+            with r_cols[0]:
+                if st.button("❌", key=f"z_{i}"):
+                    update_val(i, 'الكمية', 0)
             
-            for i, row in recent.iterrows():
-                cls = "row-even" if i % 2 == 0 else "row-odd"
-                # تقسيم التاريخ لسطرين
-                dt = row['التاريخ'].replace(" ", "<br>")
-                
-                # ملاحظة: الأزرار والمدخلات سنضعها عبر st.columns داخل الـ HTML لتعمل برمجياً
-                html_table += f'<tr class="{cls}">'
-                html_table += f'<td id="btn_{i}"></td>' # مكان الزر
-                html_table += f'<td id="qty_{i}"></td>' # مكان تعديل الكمية
-                html_table += f'<td>{row["الحالة"]}</td>'
-                html_table += f'<td>{row["المنتج"]}</td>'
-                html_table += f'<td>{row["المنزل"]}</td>'
-                html_table += f'<td>{dt}</td>'
-                html_table += '</tr>'
+            # 2. تعديل الكمية (مربع إدخال مباشر)
+            with r_cols[1]:
+                new_q = st.number_input("", value=int(row['الكمية']), key=f"edit_q_{i}", label_visibility="collapsed")
+                if new_q != int(row['الكمية']):
+                    update_val(i, 'الكمية', new_q)
             
-            html_table += '</tbody></table></div>'
-            st.markdown(html_table, unsafe_allow_html=True)
+            # 3. الحالة
+            r_cols[2].markdown(f'<div style="background:{bg}; color:{tc}; border:1px solid #444; height:35px; display:flex; align-items:center; justify-content:center; font-weight:bold;">{row["الحالة"]}</div>', unsafe_allow_html=True)
+            
+            # 4. المنتج
+            r_cols[3].markdown(f'<div style="background:{bg}; color:{tc}; border:1px solid #444; height:35px; display:flex; align-items:center; justify-content:center;">{row["المنتج"]}</div>', unsafe_allow_html=True)
+            
+            # 5. المنزل
+            r_cols[4].markdown(f'<div style="background:{bg}; color:{tc}; border:1px solid #444; height:35px; display:flex; align-items:center; justify-content:center;">{row["المنزل"]}</div>', unsafe_allow_html=True)
+            
+            # 6. التاريخ (سطرين)
+            d_parts = row['التاريخ'].split(" ")
+            d_html = f"{d_parts[0]}<br>{d_parts[1]}" if len(d_parts) > 1 else row['التاريخ']
+            r_cols[5].markdown(f'<div style="background:{bg}; color:{tc}; border:1px solid #444; height:35px; font-size:11px; text-align:center; display:flex; align-items:center; justify-content:center;">{d_html}</div>', unsafe_allow_html=True)
 
-            # الآن نضع "الأدوات التفاعلية" فوق الجدول أو في أعمدة لتعمل
-            st.divider()
-            st.subheader("🛠️ أدوات التعديل السريع")
-            edit_col1, edit_col2 = st.columns(2)
-            
-            with edit_col1:
-                idx_to_zero = st.selectbox("اختر السطر للتصفير (بالمنزل والمنتج)", 
-                                           options=recent.index, 
-                                           format_func=lambda x: f"{recent.loc[x, 'المنزل']} - {recent.loc[x, 'المنتج']}")
-                if st.button("تصفير الكمية الآن ❌"):
-                    update_val(idx_to_zero, 0)
-            
-            with edit_col2:
-                new_q_val = st.number_input("تعديل كمية السطر المختار", min_value=0)
-                if st.button("حفظ الكمية الجديدة ✅"):
-                    update_val(idx_to_zero, new_q_val)
-        else:
-            st.info("السجل فارغ")
+        st.markdown('</div>', unsafe_allow_html=True)
 
 except Exception as e:
     st.error(f"حدث خطأ: {e}")
-    
+                                     
