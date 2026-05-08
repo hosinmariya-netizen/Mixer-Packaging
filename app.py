@@ -4,26 +4,37 @@ from google.oauth2.service_account import Credentials
 import pandas as pd
 import datetime
 
-# 1. إعدادات الصفحة والتنسيق
-st.set_page_config(page_title="Bébé Sympa Pro", layout="wide")
+# 1. إعداد الصفحة والتنسيق الجمالي
+st.set_page_config(page_title="Bébé Sympa - الرقابة الذكية", layout="wide", page_icon="🛡️")
 
 st.markdown("""
     <style>
     .stApp {
-        background-image: url("https://www.transparenttextures.com/patterns/dark-matter.png");
         background-color: #0e1117;
         color: white;
         direction: rtl;
+        background-image: url("https://raw.githubusercontent.com/hosinmariya-netizen/Mixer-Packaging/main/images%20(5)%20(5).jpeg");
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
     }
-    div[data-testid="stDataFrame"] {
-        background: rgba(30, 33, 36, 0.9) !important;
-        border: 2px solid #ffa500 !important;
-        border-radius: 12px;
+    .stApp::before {
+        content: "";
+        position: fixed;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        background-color: rgba(14, 17, 23, 0.92);
+        z-index: 0;
     }
+    /* تنسيق الجداول والسجل */
+    .history-row-even { background-color: #D6C1A6; color: #000; padding: 5px; border-radius: 5px; margin-bottom: 2px; }
+    .history-row-odd { background-color: rgba(255, 165, 0, 0.1); color: #fff; padding: 5px; border-radius: 5px; margin-bottom: 2px; border: 1px solid #ffa500; }
+    .stButton>button { border-radius: 8px; }
+    .warning-text { color: #ff4b4b; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. وظائف البيانات مع تنظيف صارم (حل مشكلة TypeError)
+# 2. وظائف الاتصال ببيانات جوجل
 @st.cache_resource
 def get_sheet():
     try:
@@ -31,112 +42,132 @@ def get_sheet():
         scopes = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client = gspread.authorize(creds)
-        return client.open_by_url("https://docs.google.com/spreadsheets/d/1JZUGpM6RBYDiLfX1Z5qKH5C6E2pfaRHF6dCDWmGXTso").sheet1
-    except:
+        sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1JZUGpM6RBYDiLfX1Z5qKH5C6E2pfaRHF6dCDWmGXTso")
+        return sheet.sheet1
+    except Exception as e:
+        st.error(f"خطأ في الاتصال: {e}")
         return None
 
-def load_data_safely():
+def get_data():
     sheet = get_sheet()
     if sheet:
         data = sheet.get_all_records()
-        if data:
-            df = pd.DataFrame(data)
-            df.columns = df.columns.str.strip()
-            # حل جذري للخطأ: تحويل أي شيء ليس رقماً إلى صفر ثم إلى رقم صحيح
-            df['الكمية'] = pd.to_numeric(df['الكمية'], errors='coerce').fillna(0).astype(int)
-            return df
-    return pd.DataFrame(columns=['الكمية', 'المنتج', 'المنزل', 'التاريخ', 'الحالة'])
+        return pd.DataFrame(data)
+    return pd.DataFrame()
 
-def save_entry(row):
+def append_row(row):
     sheet = get_sheet()
     if sheet:
         sheet.append_row(row)
-        st.cache_resource.clear()
 
-# 3. بناء واجهة المستخدم
+# 3. معالجة البيانات والواجهة
 try:
-    df = load_data_safely()
-    st.title("🛡️ نظام الرقابة الاحترافي")
+    df = get_data()
+    if not df.empty:
+        df.columns = df.columns.str.strip()
+        if 'الكمية' in df.columns:
+            df['الكمية'] = pd.to_numeric(df['الكمية'], errors='coerce').fillna(0)
 
-    # تحديث يدوي للبيانات
-    if st.button("🔄 تحديث السيرفر"):
-        st.cache_resource.clear()
-        st.rerun()
+    # الهيدر العلوي
+    col_t, col_ref = st.columns([4, 1])
+    with col_t: st.title("🛡️ نظام الرقابة المطور")
+    with col_ref:
+        if st.button("🔄 تحديث"):
+            st.cache_resource.clear()
+            st.rerun()
 
-    tabs = st.tabs(["📥 استلام", "📤 إرسال", "🏢 المخزن", "💰 الحسابات", "📜 السجل"])
+    tabs = st.tabs(["🏠 استلام", "📤 إخراج", "🏢 المخزن", "💰 كشف حساب", "📜 History"])
 
+    # --- TAB 1: استلام من المنزل ---
     with tabs[0]:
-        st.subheader("🏠 استلام من المنازل")
-        homes = [h for h in df['المنزل'].unique() if str(h).strip() not in ["", "-"]]
-        for h in homes:
-            with st.expander(f"🏠 منزل: {h}"):
-                h_df = df[df['المنزل'] == h]
-                for p in h_df['المنتج'].unique():
-                    # حسابات رياضية آمنة تماماً الآن
-                    sent = h_df[h_df['الحالة'].isin(['ct', 'fn'])]['الكمية'].sum()
-                    received = h_df[h_df['الحالة'] == 'st']['الكمية'].sum()
-                    rem = int(sent) - int(received)
-                    if rem > 0:
-                        st.write(f"📦 **{p}** | متبقي: {rem}")
-                        val = st.number_input(f"الكمية ({p})", min_value=0, key=f"in_{h}_{p}")
-                        if st.button("تأكيد ✅", key=f"btn_{h}_{p}"):
-                            save_entry([int(val), p, h, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "st"])
-                            st.rerun()
+        st.subheader("📦 استلام الإنتاج")
+        if not df.empty:
+            homes = [h for h in df['المنزل'].unique() if h not in ["-", ""]]
+            for home in homes:
+                with st.expander(f"🏠 منزل: {home}"):
+                    home_data = df[df['المنزل'] == home]
+                    for prod in home_data['المنتج'].unique():
+                        p_data = home_data[home_data['المنتج'] == prod]
+                        rem = p_data[p_data['الحالة'].isin(['ct', 'fn'])]['الكمية'].sum() - p_data[p_data['الحالة'] == 'st']['الكمية'].sum()
+                        if rem > 0:
+                            st.write(f"**{prod}** (المتبقي: {int(rem)})")
+                            c1, c2 = st.columns([3, 1])
+                            qty_in = c1.number_input(f"الكمية", min_value=0, key=f"in_{home}_{prod}")
+                            if c2.button("تأكيد", key=f"btn_in_{home}_{prod}"):
+                                append_row([qty_in, prod, home, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "st"])
+                                st.cache_resource.clear()
+                                st.rerun()
 
+    # --- TAB 2: إخراج للمنزل ---
     with tabs[1]:
-        st.subheader("📤 إرسال جديد")
-        with st.form("send_form"):
-            f_h = st.text_input("اسم المنزل")
-            f_p = st.text_input("اسم المنتج")
-            f_q = st.number_input("الكمية", min_value=1)
-            f_s = st.selectbox("الحالة", ["ct", "fn"])
-            if st.form_submit_button("إرسال الآن"):
-                save_entry([int(f_q), f_p, f_h, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), f_s])
+        st.subheader("📤 إخراج بضاعة جديدة")
+        with st.form("out_form"):
+            f1, f2, f3 = st.columns(3)
+            o_h = f1.text_input("اسم المنزل")
+            o_p = f2.text_input("اسم المنتج")
+            o_q = f3.number_input("الكمية", min_value=1)
+            o_s = st.radio("الحالة", ["ct", "fn"], horizontal=True)
+            if st.form_submit_button("تسجيل الخروج"):
+                append_row([o_q, o_p, o_h, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), o_s])
+                st.cache_resource.clear()
                 st.rerun()
 
+    # --- TAB 3: المخزن النهائي ---
     with tabs[2]:
-        st.subheader("🏢 رصيد المخزن")
+        st.subheader("🏢 رصيد الشركة")
         if not df.empty:
-            st_sum = df[df['الحالة'] == 'st'].groupby('المنتج')['الكمية'].sum()
-            cl_sum = df[df['الحالة'] == 'cl'].groupby('المنتج')['الكمية'].sum()
-            stock = (st_sum - cl_sum).fillna(st_sum).reset_index()
-            st.dataframe(stock.style.highlight_between(left=1, color='#004d00'), use_container_width=True)
+            s_in = df[df['الحالة'] == 'st'].groupby('المنتج')['الكمية'].sum()
+            s_out = df[df['الحالة'] == 'cl'].groupby('المنتج')['الكمية'].sum()
+            stock = s_in.subtract(s_out, fill_value=0).reset_index()
+            for _, r in stock.iterrows():
+                if r['الكمية'] > 0:
+                    st.info(f"📦 {r['المنتج']}: {int(r['الكمية'])} قطعة متوفرة")
 
+    # --- TAB 4: كشف الحساب ---
     with tabs[3]:
-        st.subheader("💰 ملخص ذمم المنازل")
         if not df.empty:
-            pivot = df.pivot_table(index='المنزل', columns='الحالة', values='الكمية', aggfunc='sum', fill_value=0)
-            st.dataframe(pivot, use_container_width=True)
+            st.dataframe(df.pivot_table(index='المنزل', columns='الحالة', values='الكمية', aggfunc='sum', fill_value=0), use_container_width=True)
 
+    # --- TAB 5: السجل (HISTORY) ---
     with tabs[4]:
-        st.subheader("📜 السجل (History)")
+        st.subheader("📜 سجل المعاملات (History)")
         if not df.empty:
-            hist = df.iloc[::-1].head(50).copy()
+            history_df = df.iloc[::-1].head(50) # عرض آخر 50 عملية
             
-            # جدول سلس، بدون فراغات، وقابل للسحب يميناً ويساراً
-            st.data_editor(
-                hist,
-                column_config={
-                    "الكمية": st.column_config.NumberColumn("🔢 الكمية", width="small"),
-                    "المنتج": st.column_config.TextColumn("📦 المنتج", width="small"),
-                    "المنزل": st.column_config.TextColumn("🏠 المنزل", width="small"),
-                    "التاريخ": st.column_config.TextColumn("📅 التاريخ", width="medium"),
-                },
-                use_container_width=False, # هذا يضمن سلاسة السحب على الموبايل
-                hide_index=True
-            )
-
-            st.divider()
-            st.subheader("❌ زر التصفير السريع")
-            to_fix = st.selectbox("اختر العملية لتصفيرها:", options=hist.index, 
-                                 format_func=lambda x: f"{hist.loc[x, 'المنزل']} - {hist.loc[x, 'المنتج']} ({hist.loc[x, 'الكمية']})")
-            if st.button("تصفير الآن ✓"):
-                r = hist.loc[to_fix]
-                save_entry([int(r['الكمية']), r['المنتج'], r['المنزل'], datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "st"])
-                st.success("تم التصفير!")
-                st.rerun()
+            # عناوين الجدول
+            h_cols = st.columns([1.5, 1.5, 1, 1, 2, 1])
+            headers = ["المنزل", "المنتج", "الحالة", "الكمية", "التاريخ", "التسوية"]
+            for col, text in zip(h_cols, headers): col.markdown(f"**{text}**")
+            
+            for i, row in history_df.iterrows():
+                # تلوين الأسطر بشكل متبادل
+                row_class = "history-row-even" if i % 2 == 0 else "history-row-odd"
+                
+                with st.container():
+                    st.markdown(f'<div class="{row_class}">', unsafe_allow_html=True)
+                    c1, c2, c3, c4, c5, c6 = st.columns([1.5, 1.5, 1, 1, 2, 1])
+                    
+                    c1.write(row['المنزل'])
+                    c2.write(row['المنتج'])
+                    c3.write(row['الحالة'])
+                    c4.write(str(int(row['الكمية'])))
+                    c5.write(row['التاريخ'])
+                    
+                    # زر التسوية التلقائية
+                    if row['الحالة'] in ['ct', 'fn'] and row['المنزل'] != "-":
+                        if c6.button("✅", key=f"hist_set_{i}"):
+                            # حساب المتبقي الفعلي للمنزل
+                            p_data = df[(df['المنزل'] == row['المنزل']) & (df['المنتج'] == row['المنتج'])]
+                            actual_rem = p_data[p_data['الحالة'].isin(['ct', 'fn'])]['الكمية'].sum() - p_data[p_data['الحالة'] == 'st']['الكمية'].sum()
+                            if actual_rem > 0:
+                                append_row([actual_rem, row['المنتج'], row['المنزل'], datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "st"])
+                                st.cache_resource.clear()
+                                st.success("تمت التسوية!")
+                                st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            st.info("السجل فارغ حالياً.")
 
 except Exception as e:
-    st.error(f"⚠️ خطأ تقني: {str(e)}")
-    st.info("نصيحة: تأكد أن عمود الكمية في الإكسل لا يحتوي على كلمات، فقط أرقام.")
-    
+    st.error(f"حدث خطأ: {e}")
+                    
