@@ -61,7 +61,7 @@ try:
             st.cache_resource.clear()
             st.rerun()
 
-    tab1, tab2, tab3 = st.tabs(["🏠 استلام من المنازل", "🏢 المخزن النهائي", "💰 كشف الحساب"])
+    tab1, tab2, tab3, tab4 = st.tabs(["🏠 استلام من المنازل", "📤 إخراج للمنزل", "🏢 المخزن النهائي", "💰 كشف الحساب"])
 
     with tab1:
         st.subheader("📦 إدارة المستلمات من المنازل")
@@ -116,12 +116,53 @@ try:
                         st.caption(f"✅ {prod}: تم استلام كامل الكمية الصادرة.")
 
     with tab2:
-        st.subheader("🏢 رصيد الشركة الحالي")
-        stock_final = df[df['الحالة'] == 'st'].groupby('المنتج')['الكمية'].sum().reset_index()
-        stock_final.columns = ['اسم المنتج', 'المخزن (st)']
-        st.table(stock_final)
+        st.subheader("📤 إخراج بضاعة للمنزل")
+        homes = [h for h in df['المنزل'].unique() if h != "-"]
+        all_prods = df['المنتج'].unique().tolist()
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            out_home = st.selectbox("اختر المنزل", homes, key="out_home")
+        with col2:
+            out_prod = st.selectbox("اختر المنتج", all_prods, key="out_prod")
+        with col3:
+            out_qty = st.number_input("الكمية", min_value=1, step=1, key="out_qty")
+
+        out_status = st.radio("نوع الإخراج", ["ct", "fn"], horizontal=True, key="out_status")
+
+        if st.button("📤 تأكيد الإخراج"):
+            now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+            append_row([out_qty, out_prod, out_home, now, out_status])
+            st.cache_resource.clear()
+            st.success(f"تم تسجيل إخراج {int(out_qty)} من {out_prod} للمنزل {out_home}")
+            st.rerun()
 
     with tab3:
+        st.subheader("🏢 رصيد الشركة الحالي")
+        stock_in = df[df['الحالة'] == 'st'].groupby('المنتج')['الكمية'].sum()
+        stock_out = df[df['الحالة'] == 'cl'].groupby('المنتج')['الكمية'].sum()
+        stock_final = stock_in.subtract(stock_out, fill_value=0).reset_index()
+        stock_final.columns = ['اسم المنتج', 'المخزن']
+        stock_final['المخزن'] = stock_final['المخزن'].astype(int)
+
+        for _, row in stock_final.iterrows():
+            col1, col2, col3 = st.columns([3, 1, 1])
+            with col1:
+                st.write(f"**{row['اسم المنتج']}**")
+            with col2:
+                st.write(f"{row['المخزن']}")
+            with col3:
+                if st.button(f"✅ تسليم للعميل", key=f"cl_{row['اسم المنتج']}"):
+                    qty_to_remove = st.session_state.get(f"cl_qty_{row['اسم المنتج']}", 0)
+                    if qty_to_remove > 0:
+                        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                        append_row([qty_to_remove, row['اسم المنتج'], "-", now, "cl"])
+                        st.cache_resource.clear()
+                        st.rerun()
+            st.number_input("الكمية المسلمة للعميل", min_value=0, step=1, key=f"cl_qty_{row['اسم المنتج']}")
+            st.divider()
+
+    with tab4:
         st.subheader("💰 ملخص العمليات المنجزة للدفع")
         payment_summary = df[df['الحالة'].isin(['ct', 'fn'])].groupby(['المنزل', 'الحالة'])['الكمية'].sum().unstack(fill_value=0)
         st.dataframe(payment_summary, use_container_width=True)
