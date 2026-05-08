@@ -4,22 +4,44 @@ from google.oauth2.service_account import Credentials
 import pandas as pd
 import datetime
 
-# 1. إعدادات الواجهة
+# 1. إعدادات الصفحة والتصميم (CSS) لضبط الهاتف وتثبيت الرأس
 st.set_page_config(page_title="Bébé Sympa", layout="wide")
 
 st.markdown("""
     <style>
     .stApp { background-color: #0e1117; color: white; direction: rtl; }
-    /* ستايل الجدول الأفقي */
-    .excel-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-    .excel-table th { background-color: #ffa500; color: black; border: 1px solid #444; padding: 10px; position: sticky; top: 0; }
-    .excel-table td { border: 1px solid #444; padding: 8px; text-align: center; }
+    
+    /* حاوية الجدول للسماح بالتحرك الجانبي وتثبيت الرأس */
+    .table-wrapper {
+        overflow-x: auto;
+        max-height: 500px;
+        overflow-y: auto;
+        border: 1px solid #444;
+    }
+    
+    table { width: 100%; border-collapse: collapse; min-width: 600px; }
+    
+    /* تثبيت الرأس البرتقالي في أعلى الشاشة */
+    th {
+        position: sticky;
+        top: 0;
+        background-color: #ffa500 !important;
+        color: black !important;
+        z-index: 10;
+        padding: 10px;
+        border: 1px solid #444;
+    }
+    
+    td { border: 1px solid #444; padding: 8px; text-align: center; vertical-align: middle; }
     .row-even { background-color: #D6C1A6; color: black; }
     .row-odd { background-color: #1e2124; color: white; }
+    
+    /* تصغير الخط للتاريخ ليناسب سطرين */
+    .date-text { font-size: 11px; line-height: 1.2; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. الدوال البرمجية
+# 2. الاتصال ببيانات جوجل
 @st.cache_resource
 def get_sheet():
     try:
@@ -32,93 +54,115 @@ def get_sheet():
 
 def get_data():
     s = get_sheet()
-    return pd.DataFrame(s.get_all_records()) if s else pd.DataFrame()
+    if s:
+        df = pd.DataFrame(s.get_all_records())
+        df.columns = df.columns.str.strip()
+        return df
+    return pd.DataFrame()
 
-def append_row(row):
+def update_cell(row_idx, col_name, value):
     s = get_sheet()
-    if s: s.append_row(row)
+    if s:
+        # +2 لأن بايثون يبدأ من 0 والجدول فيه هيدر ويبدأ من 1
+        col_idx = s.find(col_name).col
+        s.update_cell(row_idx + 2, col_idx, value)
 
-# 3. بناء الواجهة (تأكد من بقاء المسافات كما هي هنا)
+def append_row(row_data):
+    s = get_sheet()
+    if s: s.append_row(row_data)
+
+# 3. بناء الواجهة
 try:
     df = get_data()
     if not df.empty:
-        df.columns = df.columns.str.strip()
         df['الكمية'] = pd.to_numeric(df['الكمية'], errors='coerce').fillna(0)
 
     # الهيدر وزر التحديث
-    c_t, c_r = st.columns([4, 1])
-    c_t.title("🛡️ نظام الرقابة - Bébé Sympa")
-    if c_r.button("🔄 تحديث البيانات"):
+    c1, c2 = st.columns([4, 1])
+    c1.title("🛡️ الرقابة الذكية")
+    if c2.button("🔄 تحديث"):
         st.cache_resource.clear()
         st.rerun()
 
-    t = st.tabs(["🏠 استلام", "📤 إخراج", "🏢 المخزن", "💰 كشف حساب", "📜 History"])
+    tabs = st.tabs(["🏠 استلام/إخراج", "🏢 المخزن", "💰 الحساب", "📜 History"])
 
-    with t[0]:
-        st.subheader("📦 استلام من المنازل")
+    # --- تبويب الإدخال (دمج الاستلام والإخراج لسهولة الهاتف) ---
+    with tabs[0]:
+        with st.expander("➕ إضافة عملية جديدة (إخراج للمنزل)"):
+            with st.form("new_op"):
+                f1, f2 = st.columns(2)
+                home_in = f1.text_input("المنزل")
+                prod_in = f1.text_input("المنتج")
+                qty_in = f2.number_input("الكمية", min_value=1)
+                stat_in = f2.selectbox("الحالة", ["ct", "fn", "st", "cl"])
+                if st.form_submit_button("حفظ العملية"):
+                    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                    append_row([qty_in, prod_in, home_in, now, stat_in])
+                    st.cache_resource.clear()
+                    st.success("تم الحفظ!")
+                    st.rerun()
+
+    # --- تبويب السجل التاريخي (History) - هو المطلب الأساسي ---
+    with tabs[3]:
+        st.subheader("السجل (تثبيت الرأس + تعديل مباشر)")
         if not df.empty:
-            homes = [h for h in df['المنزل'].unique() if h not in ["-", ""]]
-            for home in homes:
-                with st.expander(f"🏠 منزل: {home}"):
-                    h_df = df[df['المنزل'] == home]
-                    for prd in h_df['المنتج'].unique():
-                        p_df = h_df[h_df['المنتج'] == prd]
-                        rem = p_df[p_df['الحالة'].isin(['ct', 'fn'])]['الكمية'].sum() - p_df[p_df['الحالة'] == 'st']['الكمية'].sum()
-                        if rem > 0:
-                            st.write(f"**{prd}** | متبقي: {int(rem)}")
-                            col1, col2 = st.columns([3, 1])
-                            q = col1.number_input(f"الكمية", min_value=0, key=f"q_{home}_{prd}")
-                            if col2.button("تأكيد", key=f"b_{home}_{prd}"):
-                                append_row([q, prd, home, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "st"])
-                                st.cache_resource.clear()
-                                st.rerun()
-
-    with t[1]:
-        st.subheader("📤 إخراج بضاعة")
-        with st.form("out_form"):
-            f1, f2, f3 = st.columns(3)
-            o_h = f1.text_input("اسم المنزل")
-            o_p = f2.text_input("المنتج")
-            o_q = f3.number_input("الكمية", min_value=1)
-            o_s = st.radio("الحالة", ["ct", "fn"], horizontal=True)
-            if st.form_submit_button("إرسال"):
-                append_row([o_q, o_p, o_h, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), o_s])
-                st.cache_resource.clear()
-                st.rerun()
-
-    with t[2]:
-        st.subheader("🏢 المخزن")
-        if not df.empty:
-            s_in = df[df['الحالة'] == 'st'].groupby('المنتج')['الكمية'].sum()
-            s_out = df[df['الحالة'] == 'cl'].groupby('المنتج')['الكمية'].sum()
-            stk = s_in.subtract(s_out, fill_value=0)
-            for p, q in stk.items():
-                if q > 0: st.info(f"📦 {p}: {int(q)}")
-
-    with t[3]:
-        st.subheader("💰 كشف الحساب")
-        if not df.empty:
-            st.dataframe(df.pivot_table(index='المنزل', columns='الحالة', values='الكمية', aggfunc='sum', fill_value=0))
-
-    with t[4]:
-        st.subheader("📜 History (Excel Style)")
-        if not df.empty:
-            hist = df.iloc[::-1].head(50)
-            # إنشاء الجدول الأفقي بـ HTML
-            html = '<div style="overflow-x:auto;"><table class="excel-table"><thead><tr>'
-            for col in ["المنزل", "المنتج", "الحالة", "الكمية", "التاريخ"]:
-                html += f'<th>{col}</th>'
-            html += '</tr></thead><tbody>'
+            # سنعرض آخر 40 عملية للتعديل عليها
+            recent_df = df.tail(40).iloc[::-1] 
             
-            for i, row in hist.iterrows():
-                cls = "row-even" if i % 2 == 0 else "row-odd"
-                html += f'<tr class="{cls}">'
-                html += f'<td>{row["المنزل"]}</td><td>{row["المنتج"]}</td><td>{row["الحالة"]}</td>'
-                html += f'<td>{int(row["الكمية"])}</td><td>{row["التاريخ"]}</td></tr>'
-            
-            html += '</tbody></table></div>'
-            st.markdown(html, unsafe_allow_html=True)
+            # عرض رأس الجدول الثابت يدوياً باستخدام HTML لضمان الشكل
+            st.markdown("""
+                <div class='table-wrapper'>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>تصفير</th>
+                                <th>الكمية</th>
+                                <th>الحالة</th>
+                                <th>المنتج</th>
+                                <th>المنزل</th>
+                                <th>التاريخ</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            """, unsafe_allow_html=True)
+
+            for i, row in recent_df.iterrows():
+                row_idx = i # الحفظ الأصلي في ملف جوجل
+                bg_cls = "row-even" if i % 2 == 0 else "row-odd"
+                date_split = row['التاريخ'].split(" ")
+                date_html = f"<div class='date-text'>{date_split[0]}<br>{date_split[1] if len(date_split)>1 else ''}</div>"
+                
+                # استخدام أعمدة ستريمليت داخل السجل للسماح بالتفاعل (الأزرار والمدخلات)
+                col_check, col_qty, col_stat, col_prod, col_home, col_date = st.columns([1, 1.5, 1, 1.5, 1.5, 2])
+                
+                with col_check:
+                    if st.button("❌", key=f"zero_{i}"):
+                        update_cell(row_idx, 'الكمية', 0)
+                        st.cache_resource.clear()
+                        st.rerun()
+                
+                with col_qty:
+                    new_q = st.number_input("", value=int(row['الكمية']), key=f"edit_q_{i}", label_visibility="collapsed")
+                    if new_q != int(row['الكمية']):
+                        update_cell(row_idx, 'الكمية', new_q)
+                        st.cache_resource.clear()
+                        st.rerun()
+                
+                with col_stat: st.markdown(f"<div class='excel-cell {bg_cls}'>{row['الحالة']}</div>", unsafe_allow_html=True)
+                with col_prod: st.markdown(f"<div class='excel-cell {bg_cls}'>{row['المنتج']}</div>", unsafe_allow_html=True)
+                with col_home: st.markdown(f"<div class='excel-cell {bg_cls}'>{row['المنزل']}</div>", unsafe_allow_html=True)
+                with col_date: st.markdown(f"<div class='excel-cell {bg_cls}'>{date_html}</div>", unsafe_allow_html=True)
+                
+                st.markdown("<hr style='margin:2px; border:0.5px solid #444'>", unsafe_allow_html=True)
+
+    # بقية التبويبات (المخزن والحساب)
+    with tabs[1]:
+        st.subheader("🏢 رصيد الشركة")
+        s_in = df[df['الحالة'] == 'st'].groupby('المنتج')['الكمية'].sum()
+        s_out = df[df['الحالة'] == 'cl'].groupby('المنتج')['الكمية'].sum()
+        stock = s_in.subtract(s_out, fill_value=0)
+        st.write(stock)
 
 except Exception as e:
     st.error(f"خطأ: {e}")
-                                            
+    
