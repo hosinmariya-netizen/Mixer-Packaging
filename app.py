@@ -1,4 +1,4 @@
-import streamlit as st
+Import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
@@ -7,38 +7,54 @@ import datetime
 # 1. إعداد الصفحة والتنسيق الجمالي
 st.set_page_config(page_title="Bébé Sympa - الرقابة الذكية", layout="wide", page_icon="🛡️")
 
-# إضافة CSS مخصص لتحسين المظهر
 st.markdown("""
     <style>
-    .stApp { direction: rtl; }
-    .main { background-color: #0e1117; }
-    .stMetric { background-color: #1e2130; padding: 15px; border-radius: 10px; border: 1px solid #4b4b4b; }
+    .stApp {
+        background-color: #0e1117;
+        color: white;
+        direction: rtl;
+        background-image: url("https://raw.githubusercontent.com/hosinmariya-netizen/Mixer-Packaging/main/images%20(5)%20(5).jpeg");
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
+    }
+    .stApp::before {
+        content: "";
+        position: fixed;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        background-color: rgba(14, 17, 23, 0.92);
+        z-index: 0;
+    }
+    .stButton>button { border-radius: 8px; }
+    .warning-text { color: #ff4b4b; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. وظائف الاتصال بجوجل شيت
+# 2. الاتصال بجوجل شيت
 @st.cache_resource
 def get_sheet():
     try:
-        # تأكد من إضافة الملف السري في Streamlit Secrets
         creds_dict = st.secrets["gcp_service_account"]
         scopes = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client = gspread.authorize(creds)
-        # استبدال الرابط برابط الشيت الخاص بك
         sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1JZUGpM6RBYDiLfX1Z5qKH5C6E2pfaRHF6dCDWmGXTso")
         return sheet.sheet1
     except Exception as e:
-        st.error(f"❌ خطأ في الاتصال بقاعدة البيانات: {e}")
+        st.error(f"خطأ في الاتصال: {e}")
         return None
 
 def get_data():
     sheet = get_sheet()
     if sheet:
         data = sheet.get_all_records()
-        if not data: # في حال كان الجدول فارغاً
-            return pd.DataFrame(columns=["الكمية", "المنتج", "المنزل", "التاريخ", "الحالة"])
         df = pd.DataFrame(data)
+        expected_cols = ["الكمية", "المنتج", "المنزل", "التاريخ", "الحالة"]
+        for col in expected_cols:
+            if col not in df.columns:
+                df[col] = ""
+        df = df[expected_cols]
         df['الكمية'] = pd.to_numeric(df['الكمية'], errors='coerce').fillna(0)
         return df
     return pd.DataFrame()
@@ -48,78 +64,117 @@ def append_row(row):
     if sheet:
         sheet.append_row(row)
 
-# --- منطق التطبيق الرئيسي ---
-if "df" not in st.session_state:
-    st.session_state.df = get_data()
+# 3. الواجهة
+try:
+    if "df" not in st.session_state:
+        st.session_state.df = get_data()
+    df = st.session_state.df
 
-df = st.session_state.df
-
-# الهيدر
-st.title("🛡️ نظام الرقابة المطور - Bébé Sympa")
-if st.button("🔄 تحديث البيانات"):
-    st.cache_resource.clear()
-    st.session_state.df = get_data()
-    st.rerun()
-
-tabs = st.tabs(["🏠 استلام", "📤 إخراج للمنازل", "🏢 المخزن", "💰 كشف حساب", "📜 السجل"])
-
-# --- TAB 1: استلام من المنزل ---
-with tabs[0]:
-    st.subheader("📥 استلام الإنتاج الجاهز")
-    if not df.empty:
-        # منطق حساب المتبقي عند المنازل (ما تم إخراجه لهم - ما تم استلامه منهم)
-        homes = df[df['المنزل'] != "المخزن"]['المنزل'].unique()
-        for home in homes:
-            with st.expander(f"🏠 منزل: {home}"):
-                home_data = df[df['المنزل'] == home]
-                for prod in home_data['المنتج'].unique():
-                    p_data = home_data[home_data['المنتج'] == prod]
-                    # تم إخراجه للمنزل (ct, fn) - تم استلامه منه (st)
-                    rem = p_data[p_data['الحالة'].isin(['ct', 'fn'])]['الكمية'].sum() - p_data[p_data['الحالة'] == 'st']['الكمية'].sum()
-                    
-                    if rem > 0:
-                        col1, col2 = st.columns([2,1])
-                        qty = col1.number_input(f"كمية {prod}", min_value=0, max_value=int(rem), key=f"in_{home}_{prod}")
-                        if col2.button("تسجيل استلام", key=f"btn_{home}_{prod}"):
-                            append_row([qty, prod, home, datetime.datetime.now().strftime("%Y-%m-%d"), "st"])
-                            st.success(f"تم استلام {qty} من {prod}")
-                            st.rerun()
-
-# --- TAB 2: إخراج بضاعة للمنازل ---
-with tabs[1]:
-    st.subheader("📤 توزيع مواد خام/عمل للمنازل")
-    with st.form("out_to_home"):
-        h_name = st.text_input("اسم المنزل")
-        p_name = st.text_input("اسم المنتج")
-        qty = st.number_input("الكمية", min_value=1)
-        status = st.selectbox("نوع العملية", ["ct (قص)", "fn (خياطة)"])
-        if st.form_submit_button("إرسال للمنزل"):
-            append_row([qty, p_name, h_name, datetime.datetime.now().strftime("%Y-%m-%d"), status[:2]])
-            st.success("تم التسجيل")
+    # الهيدر
+    col_t, col_ref = st.columns([4, 1])
+    with col_t: st.title("🛡️ نظام الرقابة المطور")
+    with col_ref:
+        if st.button("🔄 تحديث"):
+            st.cache_resource.clear()
+            st.session_state.df = get_data()
             st.rerun()
 
-# --- TAB 3: المخزن الرئيسي ---
-with tabs[2]:
-    st.subheader("🏢 حالة المخزن الحالي")
-    if not df.empty:
-        # حساب المتوفر: (ما دخل المخزن 'st') - (ما خرج للبيع 'cl')
-        in_stock = df[df['الحالة'] == 'st'].groupby('المنتج')['الكمية'].sum()
-        out_stock = df[df['الحالة'] == 'cl'].groupby('المنتج')['الكمية'].sum()
-        current_stock = in_stock.subtract(out_stock, fill_value=0)
-        
-        cols = st.columns(3)
-        for i, (prod, q) in enumerate(current_stock.items()):
-            if q > 0:
-                cols[i % 3].metric(prod, f"{int(q)} قطعة")
+    tabs = st.tabs(["🏠 استلام", "📤 إخراج", "🏢 المخزن", "💰 كشف حساب", "📜 History", "✅ إنجاز"])
 
-# --- TAB 4 & 5: التقارير ---
-with tabs[3]:
-    st.subheader("💰 ملخص الكميات")
-    if not df.empty:
-        pivot = df.pivot_table(index='المنزل', columns='الحالة', values='الكمية', aggfunc='sum', fill_value=0)
-        st.table(pivot)
+    # --- TAB 1: استلام ---
+    with tabs[0]:
+        st.subheader("📦 استلام الإنتاج")
+        if not df.empty:
+            homes = [h for h in df['المنزل'].unique() if h not in ["-", ""]]
+            for home in homes:
+                with st.expander(f"🏠 منزل: {home}"):
+                    home_data = df[df['المنزل'] == home]
+                    for prod in home_data['المنتج'].unique():
+                        p_data = home_data[home_data['المنتج'] == prod]
+                        rem = p_data[p_data['الحالة'].isin(['ct', 'fn'])]['الكمية'].sum() - p_data[p_data['الحالة'] == 'st']['الكمية'].sum()
+                        if rem > 0:
+                            st.write(f"**{prod}** (المتبقي: {int(rem)})")
+                            c1, c2 = st.columns([3, 1])
+                            qty_in = c1.number_input(f"الكمية", min_value=0, key=f"in_{home}_{prod}")
+                            if c2.button("تأكيد", key=f"btn_in_{home}_{prod}"):
+                                if qty_in > 0:
+                                    append_row([qty_in, prod, home, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "st"])
+                                    st.cache_resource.clear()
+                                    st.session_state.df = get_data()
+                                    st.success("✅ تمت العملية بنجاح")
+                                    st.rerun()
+                                else:
+                                    st.warning("⚠️ يرجى إدخال كمية صحيحة")
 
-with tabs[4]:
-    st.subheader("📜 آخر 20 عملية")
-    st.dataframe(df.tail(20), use_container_width=True)
-        
+    # --- TAB 2: إخراج ---
+    with tabs[1]:
+        st.subheader("📤 إخراج بضاعة جديدة")
+        with st.form("out_form"):
+            f1, f2, f3 = st.columns(3)
+
+            homes = [h for h in df['المنزل'].unique() if h not in ["", "-"]]
+            products = [p for p in df['المنتج'].unique() if p not in ["", "-"]]
+
+            o_h = f1.selectbox("اسم المنزل", options=homes)
+            o_p = f2.selectbox("اسم المنتج", options=products)
+            o_q = f3.number_input("الكمية", min_value=1)
+            o_s = st.radio("الحالة", ["ct", "fn"], horizontal=True)
+
+            if st.form_submit_button("تسجيل الخروج"):
+                if o_q > 0 and o_p.strip() and o_h.strip():
+                    append_row([o_q, o_p, o_h, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), o_s])
+                    st.cache_resource.clear()
+                    st.session_state.df = get_data()
+                    st.success("✅ تم تسجيل العملية بنجاح")
+                    st.rerun()
+                else:
+                    st.warning("⚠️ يرجى إدخال جميع البيانات بشكل صحيح")
+
+    # --- TAB 3: المخزن ---
+    with tabs[2]:
+        st.subheader("🏢 رصيد الشركة")
+        if not df.empty:
+            s_in = df[df['الحالة'] == 'st'].groupby('المنتج')['الكمية'].sum()
+            s_out = df[df['الحالة'] == 'cl'].groupby('المنتج')['الكمية'].sum()
+            stock = s_in.subtract(s_out, fill_value=0).reset_index()
+            total_stock = stock['الكمية'].sum()
+            st.metric("إجمالي الرصيد", f"{int(total_stock)} قطعة")
+            for _, r in stock.iterrows():
+                if r['الكمية'] > 0:
+                    st.info(f"📦 {r['المنتج']}: {int(r['الكمية'])} قطعة متوفرة")
+
+    # --- TAB 4: كشف الحساب ---
+    with tabs[3]:
+        if not df.empty:
+            st.dataframe(df.pivot_table(index='المنزل', columns='الحالة', values='الكمية', aggfunc='sum', fill_value=0), use_container_width=True)
+
+    # --- TAB 5: السجل ---
+    with tabs[4]:
+        st.subheader("📜 سجل المعاملات (History)")
+        if not df.empty:
+            history_df = df.iloc[::-1].head(50)
+            st.dataframe(history_df, use_container_width=True)
+        else:
+            st.info("السجل فارغ حالياً.")
+
+    # --- TAB 6: إنجاز ---
+    with tabs[5]:
+        st.subheader("✅ إنجاز المنازل")
+        if not df.empty:
+            summary = df.groupby("المنزل").agg(
+                عدد_المنتجات=("المنتج", "nunique"),
+                مجموع_الكمية=("الكمية", "sum")
+            ).reset_index()
+
+            def highlight_row(row):
+                return ['background-color: red; color: white;' if row['مجموع_الكمية'] == 0 else '' for _ in row]
+
+            st.dataframe(
+                summary.style.apply(highlight_row, axis=1),
+                use_container_width=True
+            )
+        else:
+            st.info("لا توجد بيانات حالياً.")
+
+except Exception as e:
+    st.error(f"حدث خطأ: {e}")
