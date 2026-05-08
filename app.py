@@ -50,15 +50,29 @@ try:
     with tab1:
         st.subheader("📦 إدارة المستلمات من المنازل")
         homes = [h for h in df['المنزل'].unique() if h != "-"]
+
         for home in homes:
-            with st.expander(f"🏠 منزل: {home}"):
-                home_data = df[df['المنزل'] == home]
-                prods = home_data['المنتج'].unique()
+            home_data = df[df['المنزل'] == home]
+            prods = home_data['المنتج'].unique()
+
+            pending_count = 0
+            for prod in prods:
+                p_data = home_data[home_data['المنتج'] == prod]
+                total_out = p_data[p_data['الحالة'].isin(['ct', 'fn'])]['الكمية'].sum()
+                already_in = p_data[p_data['الحالة'] == 'st']['الكمية'].sum()
+                if total_out - already_in > 0:
+                    pending_count += 1
+
+            badge = f"🟢 {pending_count}" if pending_count > 0 else "🔴 0"
+            label = f"🏠 منزل: {home}  {badge}"
+
+            with st.expander(label):
                 for prod in prods:
                     p_data = home_data[home_data['المنتج'] == prod]
                     total_out = p_data[p_data['الحالة'].isin(['ct', 'fn'])]['الكمية'].sum()
                     already_in = p_data[p_data['الحالة'] == 'st']['الكمية'].sum()
                     max_allowed = total_out - already_in
+
                     if max_allowed > 0:
                         st.markdown(f"--- \n **المنتج:** {prod}")
                         c1, c2, c3 = st.columns([2, 2, 1])
@@ -75,7 +89,7 @@ try:
                             if st.button(f"✓ تأكيد الاستلام", key=f"btn_{home}_{prod}", disabled=btn_disabled):
                                 if input_qty > 0:
                                     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                                    append_row([home, prod, input_qty, "st", now])
+                                    append_row([input_qty, prod, home, now, "st"])
                                     st.cache_resource.clear()
                                     st.success("تم تسجيل الاستلام بنجاح!")
                                     st.rerun()
