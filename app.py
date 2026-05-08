@@ -7,54 +7,37 @@ import datetime
 # 1. إعداد الصفحة والتنسيق العام
 st.set_page_config(page_title="Bébé Sympa - الرقابة الذكية", layout="wide", page_icon="🛡️")
 
-# ستايل CSS مخصص لتثبيت الرأس وتصميم الإكسل
 st.markdown("""
     <style>
-    .stApp {
-        background-color: #0e1117;
-        direction: rtl;
-    }
-    /* حاوية الجدول مع خاصية التمرير */
-    .table-container {
-        max-height: 600px;
-        overflow-y: auto;
-        border: 2px solid #444;
-        border-radius: 5px;
-    }
-    /* تصميم رأس الجدول الثابت */
-    .sticky-header {
-        position: sticky;
-        top: 0;
-        z-index: 10;
-        background-color: #ffa500;
-        color: black;
-        display: flex;
-        font-weight: bold;
-        border-bottom: 2px solid #444;
-    }
-    /* تصميم الصفوف */
-    .row-style { display: flex; border-bottom: 1px solid #444; }
-    .cell {
-        flex: 1;
+    .stApp { background-color: #0e1117; color: white; direction: rtl; }
+    /* تنسيق خلايا الجدول الشبيه بالإكسل */
+    .excel-cell {
+        border: 1px solid #444;
         padding: 8px;
-        border-left: 1px solid #444;
         text-align: center;
-        font-size: 13px;
         display: flex;
         align-items: center;
         justify-content: center;
+        height: 50px;
+        font-size: 14px;
     }
-    .cell:last-child { border-left: none; }
-    
+    .header-cell {
+        background-color: #ffa500;
+        color: black;
+        font-weight: bold;
+        border: 1px solid #444;
+        text-align: center;
+        padding: 8px;
+    }
     /* ألوان الصفوف المتبادلة */
     .even-row { background-color: #D6C1A6; color: black; }
     .odd-row { background-color: #1e2124; color: white; }
     
-    .stButton>button { border-radius: 4px; height: 30px; line-height: 1; font-size: 12px; }
+    .stButton>button { border-radius: 8px; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. وظائف الاتصال (تبقى كما هي لضمان عمل قاعدة البيانات)
+# 2. وظائف الاتصال بـ Google Sheets
 @st.cache_resource
 def get_sheet():
     try:
@@ -80,7 +63,7 @@ def append_row(row):
     if sheet:
         sheet.append_row(row)
 
-# 3. البرنامج الرئيسي
+# 3. معالجة البيانات والواجهة
 try:
     df = get_data()
     if not df.empty:
@@ -88,65 +71,111 @@ try:
         if 'الكمية' in df.columns:
             df['الكمية'] = pd.to_numeric(df['الكمية'], errors='coerce').fillna(0)
 
-    st.title("🛡️ نظام الرقابة الذكي")
-    
+    # الهيدر العلوي وزر التحديث
+    col_t, col_ref = st.columns([4, 1])
+    with col_t: st.title("🛡️ نظام الرقابة - Bébé Sympa")
+    with col_ref:
+        if st.button("🔄 تحديث البيانات"):
+            st.cache_resource.clear()
+            st.rerun()
+
     tabs = st.tabs(["🏠 استلام", "📤 إخراج", "🏢 المخزن", "💰 كشف حساب", "📜 History"])
 
-    # (ملاحظة: التبويبات 1-4 تبقى بنفس المنطق السابق، سأركز هنا على تبويب History المطلوب)
-
-    with tabs[4]:
-        st.subheader("📜 سجل المعاملات (Excel Style + Fixed Header)")
+    # --- TAB 1: الاستلام من المنازل ---
+    with tabs[0]:
+        st.subheader("📦 إدارة المستلمات من المنازل")
         if not df.empty:
-            history_df = df.iloc[::-1] # عرض كل البيانات، الأحدث أولاً
-            
-            # بداية حاوية الجدول الثابت
-            html_content = """
-            <div class="table-container">
-                <div class="sticky-header">
-                    <div class="cell" style="flex:1.5">المنزل</div>
-                    <div class="cell" style="flex:1.5">المنتج</div>
-                    <div class="cell" style="flex:1">الحالة</div>
-                    <div class="cell" style="flex:1">الكمية</div>
-                    <div class="cell" style="flex:2">التاريخ</div>
-                    <div class="cell" style="flex:1">إجراء</div>
-                </div>
-            """
-            st.markdown(html_content, unsafe_allow_html=True)
+            homes = [h for h in df['المنزل'].unique() if h not in ["-", ""]]
+            for home in homes:
+                with st.expander(f"🏠 منزل: {home}"):
+                    home_data = df[df['المنزل'] == home]
+                    for prod in home_data['المنتج'].unique():
+                        p_data = home_data[home_data['المنتج'] == prod]
+                        total_out = p_data[p_data['الحالة'].isin(['ct', 'fn'])]['الكمية'].sum()
+                        total_in = p_data[p_data['الحالة'] == 'st']['الكمية'].sum()
+                        rem = total_out - total_in
+                        if rem > 0:
+                            st.write(f"**{prod}** (المتبقي بذمة المنزل: {int(rem)})")
+                            c1, c2 = st.columns([3, 1])
+                            qty_input = c1.number_input(f"كمية الاستلام", min_value=0, key=f"in_{home}_{prod}")
+                            if c2.button("تأكيد الاستلام", key=f"btn_in_{home}_{prod}"):
+                                if qty_input > 0:
+                                    append_row([qty_input, prod, home, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "st"])
+                                    st.cache_resource.clear()
+                                    st.rerun()
 
-            # عرض الصفوف
+    # --- TAB 2: إخراج بضاعة ---
+    with tabs[1]:
+        st.subheader("📤 تسجيل إخراج بضاعة للمنزل")
+        with st.form("out_form"):
+            f1, f2, f3 = st.columns(3)
+            o_h = f1.text_input("اسم المنزل")
+            o_p = f2.text_input("اسم المنتج")
+            o_q = f3.number_input("الكمية", min_value=1)
+            o_s = st.radio("نوع العملية", ["ct", "fn"], horizontal=True)
+            if st.form_submit_button("إرسال للمنزل"):
+                if o_h and o_p:
+                    append_row([o_q, o_p, o_h, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), o_s])
+                    st.cache_resource.clear()
+                    st.success("تم تسجيل الإخراج")
+                    st.rerun()
+
+    # --- TAB 3: المخزن النهائي ---
+    with tabs[2]:
+        st.subheader("🏢 رصيد الشركة الفعلي")
+        if not df.empty:
+            s_in = df[df['الحالة'] == 'st'].groupby('المنتج')['الكمية'].sum()
+            s_out = df[df['الحالة'] == 'cl'].groupby('المنتج')['الكمية'].sum()
+            stock = s_in.subtract(s_out, fill_value=0).reset_index()
+            for _, r in stock.iterrows():
+                if r['الكمية'] > 0:
+                    st.info(f"📦 المنتج: {r['المنتج']} | الرصيد المتاح: {int(r['الكمية'])}")
+
+    # --- TAB 4: كشف الحساب ---
+    with tabs[3]:
+        st.subheader("💰 ملخص الكميات لكل منزل")
+        if not df.empty:
+            pivot = df.pivot_table(index='المنزل', columns='الحالة', values='الكمية', aggfunc='sum', fill_value=0)
+            st.dataframe(pivot, use_container_width=True)
+
+    # --- TAB 5: السجل (History) بتصميم الإكسل ---
+    with tabs[4]:
+        st.subheader("📜 سجل العمليات (Excel View)")
+        if not df.empty:
+            history_df = df.iloc[::-1].head(50)
+            
+            # رأس الجدول الثابت (عناوين)
+            h_cols = st.columns([1.5, 1.5, 1, 1, 2, 1])
+            headers = ["المنزل", "المنتج", "الحالة", "الكمية", "التاريخ", "تسوية"]
+            for col, txt in zip(h_cols, headers):
+                col.markdown(f'<div class="header-cell">{txt}</div>', unsafe_allow_html=True)
+            
+            # محتوى الجدول
             for i, row in history_df.iterrows():
-                row_class = "even-row" if i % 2 == 0 else "odd-row"
-                status_color = "#ffa500" if row['الحالة'] in ['ct', 'fn'] else "transparent"
-                
-                # إنشاء الصف باستخدام columns لمحاكاة مظهر الجدول مع أزرار Streamlit
+                bg_class = "even-row" if i % 2 == 0 else "odd-row"
                 with st.container():
                     c1, c2, c3, c4, c5, c6 = st.columns([1.5, 1.5, 1, 1, 2, 1])
+                    c1.markdown(f'<div class="excel-cell {bg_class}">{row["المنزل"]}</div>', unsafe_allow_html=True)
+                    c2.markdown(f'<div class="excel-cell {bg_class}">{row["المنتج"]}</div>', unsafe_allow_html=True)
                     
-                    # نستخدم markdown لكل خلية لضبط الشكل
-                    c1.markdown(f'<div class="cell {row_class}" style="width:100%; height:45px;">{row["المنزل"]}</div>', unsafe_allow_html=True)
-                    c2.markdown(f'<div class="cell {row_class}" style="width:100%; height:45px;">{row["المنتج"]}</div>', unsafe_allow_html=True)
-                    c3.markdown(f'<div class="cell {row_class}" style="width:100%; height:45px; background:{status_color}; color:black; font-weight:bold;">{row["الحالة"]}</div>', unsafe_allow_html=True)
-                    c4.markdown(f'<div class="cell {row_class}" style="width:100%; height:45px;">{int(row["الكمية"])}</div>', unsafe_allow_html=True)
-                    c5.markdown(f'<div class="cell {row_class}" style="width:100%; height:45px;">{row["التاريخ"]}</div>', unsafe_allow_html=True)
+                    status_bg = "#ffa500" if row['الحالة'] in ['ct', 'fn'] else "transparent"
+                    c3.markdown(f'<div class="excel-cell {bg_class}" style="background:{status_bg}; color:black; font-weight:bold;">{row["الحالة"]}</div>', unsafe_allow_html=True)
+                    
+                    c4.markdown(f'<div class="excel-cell {bg_class}">{int(row["الكمية"])}</div>', unsafe_allow_html=True)
+                    c5.markdown(f'<div class="excel-cell {bg_class}">{row["التاريخ"]}</div>', unsafe_allow_html=True)
                     
                     # زر التسوية
                     if row['الحالة'] in ['ct', 'fn'] and row['المنزل'] != "-":
-                        if c6.button("تسوية", key=f"settle_btn_{i}"):
+                        if c6.button("تصفير", key=f"set_{i}"):
                             p_data = df[(df['المنزل'] == row['المنزل']) & (df['المنتج'] == row['المنتج'])]
-                            actual_rem = p_data[p_data['الحالة'].isin(['ct', 'fn'])]['الكمية'].sum() - p_data[p_data['الحالة'] == 'st']['الكمية'].sum()
-                            if actual_rem > 0:
-                                append_row([actual_rem, row['المنتج'], row['المنزل'], datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "st"])
+                            rem = p_data[p_data['الحالة'].isin(['ct', 'fn'])]['الكمية'].sum() - p_data[p_data['الحالة'] == 'st']['الكمية'].sum()
+                            if rem > 0:
+                                append_row([rem, row['المنتج'], row['المنزل'], datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "st"])
                                 st.cache_resource.clear()
                                 st.rerun()
                     else:
-                        c6.markdown(f'<div class="cell {row_class}" style="width:100%; height:45px;">-</div>', unsafe_allow_html=True)
-            
-            st.markdown("</div>", unsafe_allow_html=True) # إغلاق حاوية التمرير
-        else:
-            st.info("لا توجد بيانات سجل.")
-
-    # أضف هنا بقية منطق التبويبات الأخرى (استلام، إخراج، مخزن) كما في الكود السابق
+                        c6.markdown(f'<div class="excel-cell {bg_class}">-</div>', unsafe_allow_html=True)
 
 except Exception as e:
-    st.error(f"حدث خطأ: {e}")
-    
+    st.error(f"حدث خطأ تقني: {e}")
+        
