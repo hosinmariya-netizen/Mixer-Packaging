@@ -3,19 +3,19 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# ============ إعدادات Streamlit ============
+# ============ اعدادات Streamlit ============
 PAGE_TITLE = "Bébé Sympa - نظام الرقابة الذكية"
 PAGE_ICON = "shield"
 LAYOUT = "wide"
 
-# ============ إعدادات Google Sheets ============
+# ============ اعدادات Google Sheets ============
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1JZUGpM6RBYDiLfX1Z5qKH5C6E2pfaRHF6dCDWmGXTso"
 SCOPES = [
     "https://spreadsheets.google.com/feeds",
     "https://www.googleapis.com/auth/drive"
 ]
 
-# ============ أسماء الأعمدة ============
+# ============ اسماء الاعمدة ============
 COLUMNS = {
     "quantity": "الكمية",
     "product": "المنتج",
@@ -34,7 +34,7 @@ STATUS = {
     "collected": "cl"
 }
 
-# ============ الألوان ============
+# ============ الالوان ============
 COLORS = {
     "primary": "#0e1117",
     "overlay": "rgba(14, 17, 23, 0.92)",
@@ -46,16 +46,16 @@ COLORS = {
 # ============ الصور ============
 BACKGROUND_IMAGE = "https://raw.githubusercontent.com/hosinmariya-netizen/Mixer-Packaging/main/images%20(5)%20(5).jpeg"
 
-# ============ إعدادات التطبيق ============
-CACHE_TTL = 300  # 5 دقائق
+# ============ اعدادات التطبيق ============
+CACHE_TTL = 300
 MAX_HISTORY_ROWS = 50
 DATETIME_FORMAT = "%Y-%m-%d %H:%M"
 
 # ============ الرسائل ============
 MESSAGES = {
-    "success": "✅ تمت العملية بنجاح",
-    "error": "❌ حدث خطأ",
-    "warning": "⚠️ تنبيه",
-    "empty": "📭 لا توجد بيانات حالياً",
-    "loading": "⏳ جاري التحميل..."
+    "success": "تمت العملية بنجاح",
+    "error": "حدث خطأ",
+    "warning": "تنبيه",
+    "empty": "لا توجد بيانات حاليا",
+    "loading": "جاري التحميل..."
 }
