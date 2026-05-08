@@ -31,7 +31,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. وظائف الاتصال ببيانات جوجل
+# 2. الاتصال بجوجل شيت
 @st.cache_resource
 def get_sheet():
     try:
@@ -64,13 +64,13 @@ def append_row(row):
     if sheet:
         sheet.append_row(row)
 
-# 3. معالجة البيانات والواجهة
+# 3. الواجهة
 try:
     if "df" not in st.session_state:
         st.session_state.df = get_data()
     df = st.session_state.df
 
-    # الهيدر العلوي
+    # الهيدر
     col_t, col_ref = st.columns([4, 1])
     with col_t: st.title("🛡️ نظام الرقابة المطور")
     with col_ref:
@@ -81,7 +81,7 @@ try:
 
     tabs = st.tabs(["🏠 استلام", "📤 إخراج", "🏢 المخزن", "💰 كشف حساب", "📜 History", "✅ إنجاز"])
 
-    # --- TAB 1: استلام من المنزل ---
+    # --- TAB 1: استلام ---
     with tabs[0]:
         st.subheader("📦 استلام الإنتاج")
         if not df.empty:
@@ -106,7 +106,7 @@ try:
                                 else:
                                     st.warning("⚠️ يرجى إدخال كمية صحيحة")
 
-    # --- TAB 2: إخراج للمنزل ---
+    # --- TAB 2: إخراج ---
     with tabs[1]:
         st.subheader("📤 إخراج بضاعة جديدة")
         with st.form("out_form"):
@@ -130,7 +130,7 @@ try:
                 else:
                     st.warning("⚠️ يرجى إدخال جميع البيانات بشكل صحيح")
 
-    # --- TAB 3: المخزن النهائي ---
+    # --- TAB 3: المخزن ---
     with tabs[2]:
         st.subheader("🏢 رصيد الشركة")
         if not df.empty:
@@ -138,3 +138,43 @@ try:
             s_out = df[df['الحالة'] == 'cl'].groupby('المنتج')['الكمية'].sum()
             stock = s_in.subtract(s_out, fill_value=0).reset_index()
             total_stock = stock['الكمية'].sum()
+            st.metric("إجمالي الرصيد", f"{int(total_stock)} قطعة")
+            for _, r in stock.iterrows():
+                if r['الكمية'] > 0:
+                    st.info(f"📦 {r['المنتج']}: {int(r['الكمية'])} قطعة متوفرة")
+
+    # --- TAB 4: كشف الحساب ---
+    with tabs[3]:
+        if not df.empty:
+            st.dataframe(df.pivot_table(index='المنزل', columns='الحالة', values='الكمية', aggfunc='sum', fill_value=0), use_container_width=True)
+
+    # --- TAB 5: السجل ---
+    with tabs[4]:
+        st.subheader("📜 سجل المعاملات (History)")
+        if not df.empty:
+            history_df = df.iloc[::-1].head(50)
+            st.dataframe(history_df, use_container_width=True)
+        else:
+            st.info("السجل فارغ حالياً.")
+
+    # --- TAB 6: إنجاز ---
+    with tabs[5]:
+        st.subheader("✅ إنجاز المنازل")
+        if not df.empty:
+            summary = df.groupby("المنزل").agg(
+                عدد_المنتجات=("المنتج", "nunique"),
+                مجموع_الكمية=("الكمية", "sum")
+            ).reset_index()
+
+            def highlight_row(row):
+                return ['background-color: red; color: white;' if row['مجموع_الكمية'] == 0 else '' for _ in row]
+
+            st.dataframe(
+                summary.style.apply(highlight_row, axis=1),
+                use_container_width=True
+            )
+        else:
+            st.info("لا توجد بيانات حالياً.")
+
+except Exception as e:
+    st.error(f"حدث خطأ: {e}")
