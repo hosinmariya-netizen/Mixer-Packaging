@@ -1,180 +1,171 @@
-Import streamlit as st
+import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
 import datetime
 
-# 1. إعداد الصفحة والتنسيق الجمالي
 st.set_page_config(page_title="Bébé Sympa - الرقابة الذكية", layout="wide", page_icon="🛡️")
 
 st.markdown("""
-    <style>
-    .stApp {
-        background-color: #0e1117;
-        color: white;
-        direction: rtl;
-        background-image: url("https://raw.githubusercontent.com/hosinmariya-netizen/Mixer-Packaging/main/images%20(5)%20(5).jpeg");
-        background-size: cover;
-        background-position: center;
-        background-attachment: fixed;
-    }
-    .stApp::before {
-        content: "";
-        position: fixed;
-        top: 0; left: 0;
-        width: 100%; height: 100%;
-        background-color: rgba(14, 17, 23, 0.92);
-        z-index: 0;
-    }
-    .stButton>button { border-radius: 8px; }
-    .warning-text { color: #ff4b4b; font-weight: bold; }
-    </style>
-    """, unsafe_allow_html=True)
+    <style>
+    .stApp {
+        background-color: #0e1117;
+        color: white;
+        direction: rtl;
+        background-image: url("https://raw.githubusercontent.com/hosinmariya-netizen/Mixer-Packaging/main/images%20(5)%20(5).jpeg");
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
+    }
+    .stApp::before {
+        content: "";
+        position: fixed;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        background-color: rgba(14, 17, 23, 0.90);
+        z-index: 0;
+    }
+    .stButton>button { border-radius: 10px; }
+    .warning-text { color: #ff4b4b; font-weight: bold; padding: 10px; border: 1px solid #ff4b4b; border-radius: 5px; }
+    </style>
+    """, unsafe_allow_html=True)
 
-# 2. الاتصال بجوجل شيت
 @st.cache_resource
 def get_sheet():
-    try:
-        creds_dict = st.secrets["gcp_service_account"]
-        scopes = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-        client = gspread.authorize(creds)
-        sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1JZUGpM6RBYDiLfX1Z5qKH5C6E2pfaRHF6dCDWmGXTso")
-        return sheet.sheet1
-    except Exception as e:
-        st.error(f"خطأ في الاتصال: {e}")
-        return None
+    creds_dict = st.secrets["gcp_service_account"]
+    scopes = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    client = gspread.authorize(creds)
+    sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1JZUGpM6RBYDiLfX1Z5qKH5C6E2pfaRHF6dCDWmGXTso")
+    return sheet.sheet1
 
 def get_data():
-    sheet = get_sheet()
-    if sheet:
-        data = sheet.get_all_records()
-        df = pd.DataFrame(data)
-        expected_cols = ["الكمية", "المنتج", "المنزل", "التاريخ", "الحالة"]
-        for col in expected_cols:
-            if col not in df.columns:
-                df[col] = ""
-        df = df[expected_cols]
-        df['الكمية'] = pd.to_numeric(df['الكمية'], errors='coerce').fillna(0)
-        return df
-    return pd.DataFrame()
+    sheet = get_sheet()
+    data = sheet.get_all_records()
+    return pd.DataFrame(data)
 
 def append_row(row):
-    sheet = get_sheet()
-    if sheet:
-        sheet.append_row(row)
+    sheet = get_sheet()
+    sheet.append_row(row)
 
-# 3. الواجهة
 try:
-    if "df" not in st.session_state:
-        st.session_state.df = get_data()
-    df = st.session_state.df
+    df = get_data()
+    df.columns = df.columns.str.strip()
+    if 'الكمية' in df.columns:
+        df['الكمية'] = pd.to_numeric(df['الكمية'], errors='coerce').fillna(0)
 
-    # الهيدر
-    col_t, col_ref = st.columns([4, 1])
-    with col_t: st.title("🛡️ نظام الرقابة المطور")
-    with col_ref:
-        if st.button("🔄 تحديث"):
-            st.cache_resource.clear()
-            st.session_state.df = get_data()
-            st.rerun()
+    col_t, col_ref = st.columns([4, 1])
+    with col_t: st.title("🛡️ نظام الرقابة والاستلام")
+    with col_ref:
+        if st.button("🔄 تحديث البيانات"):
+            st.cache_resource.clear()
+            st.rerun()
 
-    tabs = st.tabs(["🏠 استلام", "📤 إخراج", "🏢 المخزن", "💰 كشف حساب", "📜 History", "✅ إنجاز"])
+    tab1, tab2, tab3, tab4 = st.tabs(["🏠 استلام من المنازل", "📤 إخراج للمنزل", "🏢 المخزن النهائي", "💰 كشف الحساب"])
 
-    # --- TAB 1: استلام ---
-    with tabs[0]:
-        st.subheader("📦 استلام الإنتاج")
-        if not df.empty:
-            homes = [h for h in df['المنزل'].unique() if h not in ["-", ""]]
-            for home in homes:
-                with st.expander(f"🏠 منزل: {home}"):
-                    home_data = df[df['المنزل'] == home]
-                    for prod in home_data['المنتج'].unique():
-                        p_data = home_data[home_data['المنتج'] == prod]
-                        rem = p_data[p_data['الحالة'].isin(['ct', 'fn'])]['الكمية'].sum() - p_data[p_data['الحالة'] == 'st']['الكمية'].sum()
-                        if rem > 0:
-                            st.write(f"**{prod}** (المتبقي: {int(rem)})")
-                            c1, c2 = st.columns([3, 1])
-                            qty_in = c1.number_input(f"الكمية", min_value=0, key=f"in_{home}_{prod}")
-                            if c2.button("تأكيد", key=f"btn_in_{home}_{prod}"):
-                                if qty_in > 0:
-                                    append_row([qty_in, prod, home, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "st"])
-                                    st.cache_resource.clear()
-                                    st.session_state.df = get_data()
-                                    st.success("✅ تمت العملية بنجاح")
-                                    st.rerun()
-                                else:
-                                    st.warning("⚠️ يرجى إدخال كمية صحيحة")
+    with tab1:
+        st.subheader("📦 إدارة المستلمات من المنازل")
+        homes = [h for h in df['المنزل'].unique() if h != "-"]
 
-    # --- TAB 2: إخراج ---
-    with tabs[1]:
-        st.subheader("📤 إخراج بضاعة جديدة")
-        with st.form("out_form"):
-            f1, f2, f3 = st.columns(3)
+        for home in homes:
+            home_data = df[df['المنزل'] == home]
+            prods = home_data['المنتج'].unique()
 
-            homes = [h for h in df['المنزل'].unique() if h not in ["", "-"]]
-            products = [p for p in df['المنتج'].unique() if p not in ["", "-"]]
+            pending_count = 0
+            total_remaining = 0
+            for prod in prods:
+                p_data = home_data[home_data['المنتج'] == prod]
+                total_out = p_data[p_data['الحالة'].isin(['ct', 'fn'])]['الكمية'].sum()
+                already_in = p_data[p_data['الحالة'] == 'st']['الكمية'].sum()
+                remaining = total_out - already_in
+                if remaining > 0:
+                    pending_count += 1
+                    total_remaining += remaining
 
-            o_h = f1.selectbox("اسم المنزل", options=homes)
-            o_p = f2.selectbox("اسم المنتج", options=products)
-            o_q = f3.number_input("الكمية", min_value=1)
-            o_s = st.radio("الحالة", ["ct", "fn"], horizontal=True)
+            badge = f"🟢 {pending_count}" if pending_count > 0 else "🔴 0"
+            label = f"🏠 منزل: {home}  {badge}  |  📦 {int(total_remaining)}"
 
-            if st.form_submit_button("تسجيل الخروج"):
-                if o_q > 0 and o_p.strip() and o_h.strip():
-                    append_row([o_q, o_p, o_h, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), o_s])
-                    st.cache_resource.clear()
-                    st.session_state.df = get_data()
-                    st.success("✅ تم تسجيل العملية بنجاح")
-                    st.rerun()
-                else:
-                    st.warning("⚠️ يرجى إدخال جميع البيانات بشكل صحيح")
+            with st.expander(label):
+                for prod in prods:
+                    p_data = home_data[home_data['المنتج'] == prod]
+                    total_out = p_data[p_data['الحالة'].isin(['ct', 'fn'])]['الكمية'].sum()
+                    already_in = p_data[p_data['الحالة'] == 'st']['الكمية'].sum()
+                    max_allowed = total_out - already_in
 
-    # --- TAB 3: المخزن ---
-    with tabs[2]:
-        st.subheader("🏢 رصيد الشركة")
-        if not df.empty:
-            s_in = df[df['الحالة'] == 'st'].groupby('المنتج')['الكمية'].sum()
-            s_out = df[df['الحالة'] == 'cl'].groupby('المنتج')['الكمية'].sum()
-            stock = s_in.subtract(s_out, fill_value=0).reset_index()
-            total_stock = stock['الكمية'].sum()
-            st.metric("إجمالي الرصيد", f"{int(total_stock)} قطعة")
-            for _, r in stock.iterrows():
-                if r['الكمية'] > 0:
-                    st.info(f"📦 {r['المنتج']}: {int(r['الكمية'])} قطعة متوفرة")
+                    if max_allowed > 0:
+                        st.markdown(f"--- \n **المنتج:** {prod}")
+                        c1, c2, c3 = st.columns([2, 2, 1])
+                        with c1:
+                            input_qty = st.number_input(f"الكمية المستلمة (الحد الأقصى {int(max_allowed)})",
+                                                       min_value=0, step=1, key=f"qty_{home}_{prod}")
+                        is_over = input_qty > max_allowed
+                        ignore_warning = False
+                        if is_over:
+                            st.markdown(f'<p class="warning-text">⚠️ تحذير: الكمية ({int(input_qty)}) أكبر من الصادرة ({int(max_allowed)})!</p>', unsafe_allow_html=True)
+                            ignore_warning = st.checkbox("تجاهل التحذير", key=f"ign_{home}_{prod}")
+                        with c2:
+                            btn_disabled = is_over and not ignore_warning
+                            if st.button(f"✓ تأكيد الاستلام", key=f"btn_{home}_{prod}", disabled=btn_disabled):
+                                if input_qty > 0:
+                                    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                                    append_row([input_qty, prod, home, now, "st"])
+                                    st.cache_resource.clear()
+                                    st.success("تم تسجيل الاستلام بنجاح!")
+                                    st.rerun()
+                    else:
+                        st.caption(f"✅ {prod}: تم استلام كامل الكمية الصادرة.")
 
-    # --- TAB 4: كشف الحساب ---
-    with tabs[3]:
-        if not df.empty:
-            st.dataframe(df.pivot_table(index='المنزل', columns='الحالة', values='الكمية', aggfunc='sum', fill_value=0), use_container_width=True)
+    with tab2:
+        st.subheader("📤 إخراج بضاعة للمنزل")
+        homes = [h for h in df['المنزل'].unique() if h != "-"]
+        all_prods = df['المنتج'].unique().tolist()
 
-    # --- TAB 5: السجل ---
-    with tabs[4]:
-        st.subheader("📜 سجل المعاملات (History)")
-        if not df.empty:
-            history_df = df.iloc[::-1].head(50)
-            st.dataframe(history_df, use_container_width=True)
-        else:
-            st.info("السجل فارغ حالياً.")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            out_home = st.selectbox("اختر المنزل", homes, key="out_home")
+        with col2:
+            out_prod = st.selectbox("اختر المنتج", all_prods, key="out_prod")
+        with col3:
+            out_qty = st.number_input("الكمية", min_value=1, step=1, key="out_qty")
 
-    # --- TAB 6: إنجاز ---
-    with tabs[5]:
-        st.subheader("✅ إنجاز المنازل")
-        if not df.empty:
-            summary = df.groupby("المنزل").agg(
-                عدد_المنتجات=("المنتج", "nunique"),
-                مجموع_الكمية=("الكمية", "sum")
-            ).reset_index()
+        out_status = st.radio("نوع الإخراج", ["ct", "fn"], horizontal=True, key="out_status")
 
-            def highlight_row(row):
-                return ['background-color: red; color: white;' if row['مجموع_الكمية'] == 0 else '' for _ in row]
+        if st.button("📤 تأكيد الإخراج"):
+            now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+            append_row([out_qty, out_prod, out_home, now, out_status])
+            st.cache_resource.clear()
+            st.success(f"تم تسجيل إخراج {int(out_qty)} من {out_prod} للمنزل {out_home}")
+            st.rerun()
 
-            st.dataframe(
-                summary.style.apply(highlight_row, axis=1),
-                use_container_width=True
-            )
-        else:
-            st.info("لا توجد بيانات حالياً.")
+    with tab3:
+        st.subheader("🏢 رصيد الشركة الحالي")
+        stock_in = df[df['الحالة'] == 'st'].groupby('المنتج')['الكمية'].sum()
+        stock_out = df[df['الحالة'] == 'cl'].groupby('المنتج')['الكمية'].sum()
+        stock_final = stock_in.subtract(stock_out, fill_value=0).reset_index()
+        stock_final.columns = ['اسم المنتج', 'المخزن']
+        stock_final['المخزن'] = stock_final['المخزن'].astype(int)
+
+        for _, row in stock_final.iterrows():
+            col1, col2, col3 = st.columns([3, 1, 1])
+            with col1:
+                st.write(f"**{row['اسم المنتج']}**")
+            with col2:
+                st.write(f"{row['المخزن']}")
+            with col3:
+                if st.button(f"✅ تسليم للعميل", key=f"cl_{row['اسم المنتج']}"):
+                    qty_to_remove = st.session_state.get(f"cl_qty_{row['اسم المنتج']}", 0)
+                    if qty_to_remove > 0:
+                        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                        append_row([qty_to_remove, row['اسم المنتج'], "-", now, "cl"])
+                        st.cache_resource.clear()
+                        st.rerun()
+            st.number_input("الكمية المسلمة للعميل", min_value=0, step=1, key=f"cl_qty_{row['اسم المنتج']}")
+            st.divider()
+
+    with tab4:
+        st.subheader("💰 ملخص العمليات المنجزة للدفع")
+        payment_summary = df[df['الحالة'].isin(['ct', 'fn'])].groupby(['المنزل', 'الحالة'])['الكمية'].sum().unstack(fill_value=0)
+        st.dataframe(payment_summary, use_container_width=True)
 
 except Exception as e:
-    st.error(f"حدث خطأ: {e}")
+    st.error(f"خطأ في البيانات: {e}")
