@@ -8,11 +8,25 @@ st.set_page_config(page_title="Bébé Sympa - الرقابة الذكية", layo
 
 st.markdown("""
     <style>
-    .stApp { background-color: #0e1117; color: white; direction: rtl; }
+    .stApp {
+        background-color: #0e1117;
+        color: white;
+        direction: rtl;
+        background-image: url("https://raw.githubusercontent.com/hosinmariya-netizen/Mixer-Packaging/main/images%20(5)%20(5).jpeg");
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
+    }
+    .stApp::before {
+        content: "";
+        position: fixed;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        background-color: rgba(14, 17, 23, 0.90);
+        z-index: 0;
+    }
     .stButton>button { border-radius: 10px; }
     .warning-text { color: #ff4b4b; font-weight: bold; padding: 10px; border: 1px solid #ff4b4b; border-radius: 5px; }
-    .badge-green { background-color: #28a745; color: white; border-radius: 50%; padding: 2px 8px; font-weight: bold; }
-    .badge-red { background-color: #dc3545; color: white; border-radius: 50%; padding: 2px 8px; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -57,7 +71,6 @@ try:
             home_data = df[df['المنزل'] == home]
             prods = home_data['المنتج'].unique()
 
-            # حساب عدد المنتجات المتبقية
             pending_count = 0
             for prod in prods:
                 p_data = home_data[home_data['المنتج'] == prod]
@@ -66,10 +79,10 @@ try:
                 if total_out - already_in > 0:
                     pending_count += 1
 
-            badge = f'<span class="badge-green">{pending_count}</span>' if pending_count > 0 else f'<span class="badge-red">0</span>'
+            badge = f"🟢 {pending_count}" if pending_count > 0 else "🔴 0"
             label = f"🏠 منزل: {home}  {badge}"
 
-            with st.expander(label, unsafe_allow_html=True):
+            with st.expander(label):
                 for prod in prods:
                     p_data = home_data[home_data['المنتج'] == prod]
                     total_out = p_data[p_data['الحالة'].isin(['ct', 'fn'])]['الكمية'].sum()
