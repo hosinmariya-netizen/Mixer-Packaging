@@ -4,19 +4,19 @@ from google.oauth2.service_account import Credentials
 import pandas as pd
 import datetime
 
-# 1. إعدادات الصفحة والتصميم
+# 1. إعدادات الصفحة
 st.set_page_config(page_title="Bébé Sympa", layout="wide")
 
 st.markdown("""
     <style>
     .stApp { background-color: #0e1117; color: white; direction: rtl; }
-    [data-testid="stHeader"] { background-color: rgba(0,0,0,0); }
-    /* تحسين شكل الجداول على الهاتف */
-    .stDataFrame { border: 1px solid #ffa500; border-radius: 10px; }
+    /* إجبار الجداول على السحب الجانبي وعدم التكسر */
+    .stDataFrame { border: 1px solid #ffa500; }
+    div[data-testid="stExpander"] { direction: rtl; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. الدوال البرمجية والاتصال بـ Google Sheets
+# 2. الدوال البرمجية (الاتصال الآمن)
 @st.cache_resource
 def get_sheet():
     try:
@@ -24,119 +24,120 @@ def get_sheet():
         scopes = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client = gspread.authorize(creds)
-        # استبدل الرابط برابط ملفك إذا تغير
         return client.open_by_url("https://docs.google.com/spreadsheets/d/1JZUGpM6RBYDiLfX1Z5qKH5C6E2pfaRHF6dCDWmGXTso").sheet1
     except Exception as e:
-        st.error(f"فشل الاتصال بملف البيانات: {e}")
+        st.error(f"خطأ في الاتصال: {e}")
         return None
 
 def load_data():
     sheet = get_sheet()
     if sheet:
-        data = sheet.get_all_records()
-        df = pd.DataFrame(data)
+        df = pd.DataFrame(sheet.get_all_records())
         if not df.empty:
             df.columns = df.columns.str.strip()
-            # حل مشكلة الخطأ: تحويل الكمية إلى أرقام وإلغاء النصوص
             df['الكمية'] = pd.to_numeric(df['الكمية'], errors='coerce').fillna(0)
         return df
     return pd.DataFrame()
 
-def save_new_row(row):
+def save_row(row):
     sheet = get_sheet()
     if sheet:
         sheet.append_row(row)
         st.cache_resource.clear()
 
-# 3. معالجة البيانات والواجهة
+# 3. واجهة المستخدم الرئيسية
 try:
     df = load_data()
 
-    # الهيدر العلوي
-    col_main, col_refresh = st.columns([4, 1])
-    with col_main:
-        st.title("🛡️ نظام الرقابة - Bébé Sympa")
-    with col_refresh:
-        if st.button("🔄 تحديث"):
-            st.cache_resource.clear()
-            st.rerun()
+    col_title, col_ref = st.columns([4, 1])
+    col_title.title("🛡️ الرقابة - Bébé Sympa")
+    if col_ref.button("🔄 تحديث"):
+        st.cache_resource.clear()
+        st.rerun()
 
-    # التبويبات الخمسة الأساسية
     tabs = st.tabs(["📥 استلام", "📤 إخراج", "🏢 المخزن", "💰 كشف حساب", "📜 History"])
 
-    # --- TAB 1: الاستلام من المنازل ---
+    # --- تبويب الاستلام ---
     with tabs[0]:
-        st.subheader("📦 استلام بضاعة من المنازل")
+        st.subheader("📦 استلام من المنازل")
         if not df.empty:
-            homes = [h for h in df['المنزل'].unique() if h not in ["-", ""]]
-            for home in homes:
-                with st.expander(f"🏠 منزل: {home}"):
-                    home_df = df[df['المنزل'] == home]
-                    for prod in home_df['المنتج'].unique():
-                        p_df = home_df[home_df['المنتget_data'] == prod]
-                        # حساب المتبقي (المخرج - المستلم)
-                        out_q = home_df[(home_df['المنتج'] == prod) & (home_df['الحالة'].isin(['ct', 'fn']))]['الكمية'].sum()
-                        in_q = home_df[(home_df['المنتج'] == prod) & (home_df['الحالة'] == 'st')]['الكمية'].sum()
+            homes = [h for h in df['المنزل'].unique() if h not in ["", "-"]]
+            for h in homes:
+                with st.expander(f"🏠 منزل: {h}"):
+                    h_df = df[df['المنزل'] == h]
+                    for prd in h_df['المنتج'].unique():
+                        out_q = h_df[(h_df['المنتج'] == prd) & (h_df['الحالة'].isin(['ct', 'fn']))]['الكمية'].sum()
+                        in_q = h_df[(h_df['المنتج'] == prd) & (h_df['الحالة'] == 'st')]['الكمية'].sum()
                         rem = out_q - in_q
                         if rem > 0:
-                            st.write(f"**{prod}** (المتبقي: {int(rem)})")
-                            q_val = st.number_input("الكمية المستلمة", min_value=0, key=f"in_{home}_{prod}")
-                            if st.button("تأكيد الاستلام", key=f"btn_{home}_{prod}"):
-                                save_new_row([q_val, prod, home, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "st"])
+                            st.write(f"**{prd}** (متبقي بذمة المنزل: {int(rem)})")
+                            q = st.number_input(f"الكمية المستلمة", min_value=0, key=f"q_{h}_{prd}")
+                            if st.button("تأكيد", key=f"b_{h}_{prd}"):
+                                save_row([q, prd, h, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "st"])
                                 st.rerun()
 
-    # --- TAB 2: إخراج بضاعة ---
+    # --- تبويب الإخراج ---
     with tabs[1]:
-        st.subheader("📤 تسجيل إخراج جديد")
+        st.subheader("📤 إرسال بضاعة جديدة")
         with st.form("out_form"):
-            f_home = st.text_input("اسم المنزل")
-            f_prod = st.text_input("المنتج")
-            f_qty = st.number_input("الكمية", min_value=1)
-            f_stat = st.selectbox("الحالة", ["ct", "fn"])
-            if st.form_submit_button("إرسال للمنزل"):
-                if f_home and f_prod:
-                    save_new_row([f_qty, f_prod, f_home, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), f_stat])
-                    st.success("تم الإرسال!")
-                    st.rerun()
+            h_in = st.text_input("اسم المنزل")
+            p_in = st.text_input("المنتج")
+            q_in = st.number_input("الكمية", min_value=1)
+            s_in = st.selectbox("الحالة", ["ct", "fn"])
+            if st.form_submit_button("إرسال"):
+                save_row([q_in, p_in, h_in, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), s_in])
+                st.rerun()
 
-    # --- TAB 3: المخزن ---
+    # --- تبويب المخزن ---
     with tabs[2]:
-        st.subheader("🏢 الرصيد المتاح بالمخزن")
+        st.subheader("🏢 رصيد المخزن الحالي")
         if not df.empty:
-            st_sum = df[df['الحالة'] == 'st'].groupby('المنتج')['الكمية'].sum()
-            cl_sum = df[df['الحالة'] == 'cl'].groupby('المنتج')['الكمية'].sum()
-            stock = (st_sum - cl_sum).fillna(st_sum).reset_index()
-            st.table(stock[stock['الكمية'] > 0])
+            s_in = df[df['الحالة'] == 'st'].groupby('المنتج')['الكمية'].sum()
+            s_out = df[df['الحالة'] == 'cl'].groupby('المنتج')['الكمية'].sum()
+            stock = (s_in - s_out).fillna(s_in).reset_index()
+            st.dataframe(stock[stock['الكمية'] > 0], use_container_width=True)
 
-    # --- TAB 4: كشف الحساب ---
+    # --- تبويب كشف الحساب ---
     with tabs[3]:
-        st.subheader("💰 ملخص الكميات")
+        st.subheader("💰 ملخص المنازل")
         if not df.empty:
             pivot = df.pivot_table(index='المنزل', columns='الحالة', values='الكمية', aggfunc='sum', fill_value=0)
             st.dataframe(pivot, use_container_width=True)
 
-    # --- TAB 5: السجل (History) - أفقي وقابل للسحب ---
+    # --- تبويب السجل (History) - الأفقي والقابل للتعديل ---
     with tabs[4]:
-        st.subheader("📜 سجل العمليات الأخير")
+        st.subheader("📜 سجل العمليات (اسحب لليمين واليسار)")
         if not df.empty:
-            # عرض الجدول بشكل أفقي احترافي يدعم السحب الجانبي
-            history_display = df.iloc[::-1].head(100)
-            st.dataframe(
-                history_display, 
-                use_container_width=True, 
-                height=400,
+            # عرض الجدول أفقياً مع إمكانية التعديل
+            hist = df.iloc[::-1].head(100).copy()
+            
+            # محرر البيانات التفاعلي: يضمن بقاء الجدول أفقياً على الهاتف
+            edited_hist = st.data_editor(
+                hist,
                 column_config={
+                    "الكمية": st.column_config.NumberColumn("الكمية", width="small"),
                     "التاريخ": st.column_config.TextColumn("التاريخ", width="medium"),
-                    "الكمية": st.column_config.NumberColumn("الكمية", format="%d")
-                }
+                    "المنزل": st.column_config.TextColumn("المنزل", width="medium"),
+                    "المنتج": st.column_config.TextColumn("المنتج", width="medium"),
+                    "الحالة": st.column_config.TextColumn("الحالة", width="small"),
+                },
+                use_container_width=False, # يسمح بظهور شريط التمرير الأفقي
+                hide_index=True,
+                key="editor"
             )
             
             st.divider()
-            st.subheader("🧹 تصفير سريع")
-            selected_row = st.selectbox("اختر عملية لتصفيرها", options=history_display.index, 
-                                        format_func=lambda x: f"{history_display.loc[x, 'المنزل']} - {history_display.loc[x, 'المنتج']} ({history_display.loc[x, 'الكمية']})")
-            if st.button("تصفير الكمية المختارة ✓"):
-                 # إضافة سطر معاكس للتصفير (طريقة آمنة برمجياً)
-                 row = history_display.loc[selected_row]
-                 save_new_row([row['الكمية'], row['المنتج'], row['المنزل'], datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "st
-            
+            # خانة التصفير السريع (✓)
+            st.subheader("✅ تصفير عملية")
+            to_zero = st.selectbox("اختر سطر لتصفيره", options=hist.index, 
+                                   format_func=lambda x: f"{hist.loc[x, 'المنزل']} - {hist.loc[x, 'المنتج']} ({hist.loc[x, 'الكمية']})")
+            if st.button("تصفير الآن ✓"):
+                # الطريقة البرمجية الآمنة: إضافة عملية "استلام" بنفس الكمية لتصفير الذمة
+                row = hist.loc[to_zero]
+                save_row([row['الكمية'], row['المنتج'], row['المنزل'], datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "st"])
+                st.success("تم التصفير!")
+                st.rerun()
+
+except Exception as e:
+    st.error(f"عذراً، حدث خطأ: {e}")
+    
