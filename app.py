@@ -4,33 +4,27 @@ from google.oauth2.service_account import Credentials
 import pandas as pd
 import datetime
 
-# 1. إعدادات الصفحة والخلفية (الصورة والتنسيق)
-st.set_page_config(page_title="Bébé Sympa", layout="wide")
+# 1. إعدادات الصفحة والجماليات
+st.set_page_config(page_title="Bébé Sympa 2026", layout="wide")
 
-# الرابط التالي هو لصورة خلفية هادئة (يمكنك تغييره لاحقاً)
-bg_img = "https://www.transparenttextures.com/patterns/dark-matter.png"
-
-st.markdown(f"""
+# استعادة الخلفية وتنسيق الجداول
+st.markdown("""
     <style>
-    .stApp {{
-        background-image: url("{bg_img}");
+    .stApp {
+        background-image: url("https://www.transparenttextures.com/patterns/dark-matter.png");
         background-color: #0e1117;
         color: white;
         direction: rtl;
-    }}
-    /* تنسيق الجداول لتسهيل السحب على الموبايل */
-    div[data-testid="stDataFrame"] {{
-        background: rgba(30, 33, 36, 0.85);
+    }
+    div[data-testid="stDataFrame"] {
+        background: rgba(30, 33, 36, 0.9);
         border: 2px solid #ffa500;
         border-radius: 12px;
-        padding: 5px;
-    }}
-    /* منع تكسر التبويبات */
-    .stTabs [data-baseweb="tab-list"] {{ gap: 8px; }}
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. وظائف الاتصال والبيانات
+# 2. إدارة البيانات (مع معالجة أخطاء dtype)
 @st.cache_resource
 def get_sheet():
     try:
@@ -39,117 +33,111 @@ def get_sheet():
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client = gspread.authorize(creds)
         return client.open_by_url("https://docs.google.com/spreadsheets/d/1JZUGpM6RBYDiLfX1Z5qKH5C6E2pfaRHF6dCDWmGXTso").sheet1
-    except Exception as e:
-        st.error(f"خطأ في الاتصال: {e}")
+    except:
         return None
 
-def load_data():
-    sheet = get_sheet()
-    if sheet:
-        data = sheet.get_all_records()
-        if data:
-            df = pd.DataFrame(data)
+def load_clean_data():
+    s = get_sheet()
+    if s:
+        df = pd.DataFrame(s.get_all_records())
+        if not df.empty:
             df.columns = df.columns.str.strip()
-            df['الكمية'] = pd.to_numeric(df['الكمية'], errors='coerce').fillna(0)
+            # حل مشكلة dtype: تحويل الكمية لرقم بشكل اجباري
+            df['الكمية'] = pd.to_numeric(df['الكمية'], errors='coerce').fillna(0).astype(int)
             return df
     return pd.DataFrame(columns=['الكمية', 'المنتج', 'المنزل', 'التاريخ', 'الحالة'])
 
-def add_to_sheet(row):
-    sheet = get_sheet()
-    if sheet:
-        sheet.append_row(row)
+def save_row(row):
+    s = get_sheet()
+    if s:
+        s.append_row(row)
         st.cache_resource.clear()
 
-# 3. بناء الواجهة البرمجية
+# 3. بناء الواجهة
 try:
-    df = load_data()
-    st.title("🛡️ الرقابة الذكية - Bébé Sympa")
+    df = load_clean_data()
+    st.title("🛡️ نظام الرقابة الذكي")
 
-    tabs = st.tabs(["📥 استلام", "📤 إرسال", "🏢 المخزن", "💰 كشف حساب", "📜 السجل (History)"])
+    tabs = st.tabs(["📥 استلام", "📤 إرسال", "🏢 المخزن", "💰 كشف حساب", "📜 السجل (تعديل)"])
 
-    # --- 📥 الاستلام من المنازل ---
+    # --- 1. الاستلام ---
     with tabs[0]:
-        st.subheader("📦 استلام بضاعة جاهزة")
-        if not df.empty:
-            homes = [h for h in df['المنزل'].unique() if h not in ["", "-"]]
-            for h in homes:
-                with st.expander(f"🏠 منزل: {h}"):
-                    h_df = df[df['المنزل'] == h]
-                    for p in h_df['المنتج'].unique():
-                        out = h_df[(h_df['المنتج'] == p) & (h_df['الحالة'].isin(['ct', 'fn']))]['الكمية'].sum()
-                        rec = h_df[(h_df['المنتج'] == p) & (h_df['الحالة'] == 'st')]['الكمية'].sum()
-                        diff = out - rec
-                        if diff > 0:
-                            st.write(f"**{p}** | متبقي: {int(diff)}")
-                            val = st.number_input(f"الكمية المستلمة ({p})", min_value=0, key=f"i_{h}_{p}")
-                            if st.button("تأكيد الاستلام", key=f"b_{h}_{p}"):
-                                add_to_sheet([val, p, h, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "st"])
-                                st.rerun()
+        st.subheader("🏠 استلام من المنازل")
+        homes = [h for h in df['المنزل'].unique() if str(h).strip() not in ["", "-"]]
+        for h in homes:
+            with st.expander(f"🏠 منزل: {h}"):
+                h_df = df[df['المنزل'] == h]
+                for p in h_df['المنتج'].unique():
+                    # حساب الفرق بدقة (رقم مع رقم)
+                    sent = h_df[h_df['الحالة'].isin(['ct', 'fn'])]['الكمية'].sum()
+                    received = h_df[h_df['الحالة'] == 'st']['الكمية'].sum()
+                    rem = sent - received
+                    if rem > 0:
+                        st.write(f"📦 **{p}** | الباقي: {rem}")
+                        in_qty = st.number_input(f"الكمية المستلمة ({p})", min_value=0, key=f"q_{h}_{p}")
+                        if st.button("حفظ الاستلام ✅", key=f"btn_{h}_{p}"):
+                            save_row([int(in_qty), p, h, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "st"])
+                            st.rerun()
 
-    # --- 📤 الإرسال الجديد ---
+    # --- 2. الإرسال ---
     with tabs[1]:
-        st.subheader("📤 إرسال بضاعة للمنازل")
-        with st.form("send_form"):
+        st.subheader("📤 إرسال بضاعة")
+        with st.form("send_f"):
             f_h = st.text_input("اسم المنزل")
-            f_p = st.text_input("اسم المنتج")
+            f_p = st.text_input("المنتج")
             f_q = st.number_input("الكمية", min_value=1)
-            f_s = st.selectbox("نوع العملية", ["ct", "fn"])
-            if st.form_submit_button("إرسال الآن 🚀"):
-                add_to_sheet([f_q, f_p, f_h, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), f_s])
+            f_s = st.selectbox("الحالة", ["ct", "fn"])
+            if st.form_submit_button("إرسال الآن"):
+                save_row([int(f_q), f_p, f_h, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), f_s])
                 st.rerun()
 
-    # --- 🏢 المخزن (مع تلوين المتوفر) ---
+    # --- 3. المخزن ---
     with tabs[2]:
-        st.subheader("🏢 رصيد المخزن المتاح")
-        if not df.empty:
-            s_in = df[df['الحالة'] == 'st'].groupby('المنتج')['الكمية'].sum()
-            s_out = df[df['الحالة'] == 'cl'].groupby('المنتج')['الكمية'].sum()
-            stk = (s_in - s_out).fillna(s_in).reset_index()
-            # تلوين الخانات المتوفرة (أخضر)
-            st.dataframe(stk.style.highlight_between(left=1, color='#004d00'), use_container_width=True)
+        st.subheader("🏢 الرصيد الحالي")
+        st_sum = df[df['الحالة'] == 'st'].groupby('المنتج')['الكمية'].sum()
+        cl_sum = df[df['الحالة'] == 'cl'].groupby('المنتج')['الكمية'].sum()
+        stock = (st_sum - cl_sum).fillna(st_sum).reset_index()
+        st.dataframe(stock.style.highlight_between(left=1, color='#004d00'), use_container_width=True)
 
-    # --- 💰 كشف حساب المنازل ---
+    # --- 4. كشف الحساب ---
     with tabs[3]:
-        st.subheader("💰 ملخص الكميات عند المنازل")
-        if not df.empty:
-            pivot = df.pivot_table(index='المنزل', columns='الحالة', values='الكمية', aggfunc='sum', fill_value=0)
-            st.dataframe(pivot, use_container_width=True)
+        st.subheader("💰 ذمم المنازل")
+        pivot = df.pivot_table(index='المنزل', columns='الحالة', values='الكمية', aggfunc='sum', fill_value=0)
+        st.dataframe(pivot, use_container_width=True)
 
-    # --- 📜 السجل (التعديل + التلوين الأحمر للصفر + السحب) ---
+    # --- 5. السجل (التعديل، التلوين، التصفير، والسحب السلس) ---
     with tabs[4]:
-        st.subheader("📜 سجل العمليات (تعديل مباشر)")
-        if not df.empty:
-            hist = df.iloc[::-1].head(100).copy()
-            
-            # ميزة التلوين البصري: إذا كانت الكمية 0 تظهر بشكل مختلف للتنبيه
-            def color_zero(val):
-                color = 'red' if val == 0 else 'white'
-                return f'color: {color}'
+        st.subheader("📜 سجل العمليات")
+        hist = df.iloc[::-1].head(50).copy()
+        
+        # التلوين: الأحمر للصفر (رقابة بصرية)
+        def color_rule(val):
+            return 'background-color: #8b0000' if val == 0 else ''
 
-            # الجدول القابل للتعديل والسحب الأفقي
-            st.data_editor(
-                hist.style.applymap(color_zero, subset=['الكمية']),
-                column_config={
-                    "الكمية": st.column_config.NumberColumn("🔢 الكمية", width="small", format="%d"),
-                    "المنتج": st.column_config.TextColumn("📦 المنتج", width="medium"),
-                    "المنزل": st.column_config.TextColumn("🏠 المنزل", width="medium"),
-                    "التاريخ": st.column_config.TextColumn("📅 التاريخ", width="medium"),
-                },
-                use_container_width=False, # يسمح بالسحب الأفقي الحقيقي
-                hide_index=True,
-                key="main_editor"
-            )
+        # الجدول المرن (سحب لليسار)
+        edited = st.data_editor(
+            hist.style.applymap(color_rule, subset=['الكمية']),
+            column_config={
+                "الكمية": st.column_config.NumberColumn("🔢 الكمية", width="small"),
+                "التاريخ": st.column_config.TextColumn("📅 التاريخ", width="medium"),
+                "المنتج": st.column_config.TextColumn("📦 المنتج", width="small"),
+                "المنزل": st.column_config.TextColumn("🏠 المنزل", width="small"),
+            },
+            hide_index=True,
+            use_container_width=False # تفعيل السحب الأفقي
+        )
 
-            st.divider()
-            # زر التصفير (✓)
-            st.subheader("✅ تصفير عملية")
-            row_to_fix = st.selectbox("اختر سطر لتصفيره:", options=hist.index, 
-                                     format_func=lambda x: f"{hist.loc[x, 'المنزل']} - {hist.loc[x, 'المنتج']} ({hist.loc[x, 'الكمية']})")
-            if st.button("تصفير الكمية المختار ✓"):
-                r = hist.loc[row_to_fix]
-                add_to_sheet([r['الكمية'], r['المنتج'], r['المنزل'], datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "st"])
-                st.success("تم التصفير!")
-                st.rerun()
+        st.divider()
+        # زر التصفير (جديد)
+        st.subheader("❌ تصفير عملية")
+        to_del = st.selectbox("اختر العملية المراد تصفيرها:", options=hist.index, 
+                              format_func=lambda x: f"{hist.loc[x, 'المنزل']} - {hist.loc[x, 'المنتج']} ({hist.loc[x, 'الكمية']})")
+        if st.button("تصفير هذه العملية الآن ✓"):
+            target = hist.loc[to_del]
+            save_row([int(target['الكمية']), target['المنتج'], target['المنزل'], datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "st"])
+            st.success("تم التصفير بنجاح!")
+            st.rerun()
 
 except Exception as e:
-    st.error(f"حدث خطأ غير متوقع: {e}")
+    st.error(f"حدث خطأ في النظام: {str(e)}")
+                    
