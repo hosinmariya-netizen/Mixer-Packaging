@@ -3,10 +3,9 @@ import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
 import datetime
-import numpy as np
 
-# 1. إعداد الصفحة والتنسيق الجمالي
-st.set_page_config(page_title="Bébé Sympa - الرقابة الذكية", layout="wide", page_icon="🛡️")
+# 1. إعداد الصفحة
+st.set_page_config(page_title="نظام إدارة الورشة - Bébé Sympa", layout="wide", page_icon="🧵")
 
 st.markdown("""
     <style>
@@ -19,8 +18,12 @@ st.markdown("""
         background-color: #4CAF50;
         color: white;
     }
-    .stAlert {
-        direction: rtl;
+    .phase-card {
+        background-color: #1e1e2e;
+        padding: 20px;
+        border-radius: 10px;
+        margin: 10px 0;
+        border-right: 5px solid #4CAF50;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -44,12 +47,11 @@ def get_data():
     if sheet:
         data = sheet.get_all_records()
         df = pd.DataFrame(data)
-        expected_cols = ["الكمية", "المنتج", "المنزل", "التاريخ", "الحالة"]
+        expected_cols = ["الكمية", "المنتج", "المنزل", "التاريخ", "المرحلة"]
         for col in expected_cols:
             if col not in df.columns:
                 df[col] = ""
         df = df[expected_cols]
-        # تحويل الكمية إلى رقم مع التعامل مع القيم الخالية
         df['الكمية'] = pd.to_numeric(df['الكمية'], errors='coerce').fillna(0)
         return df
     return pd.DataFrame()
@@ -59,10 +61,9 @@ def append_row(row):
     if sheet:
         sheet.append_row(row)
 
-# دالة آمنة للتحويل إلى int
 def safe_int(value):
     try:
-        if pd.isna(value) or np.isinf(value):
+        if pd.isna(value):
             return 0
         return int(float(value))
     except:
@@ -75,10 +76,10 @@ try:
     df = st.session_state.df
 
     # الهيدر
+    st.title("🧵 نظام إدارة الورشة - Bébé Sympa")
+    st.caption("مراحل الإنتاج: الخياطة (CT) → التغليف (FN) → تسليم")
+    
     col_t, col_ref = st.columns([4, 1])
-    with col_t: 
-        st.title("🛡️ نظام الرقابة المطور")
-        st.caption("نظام إدارة المخزون والعملاء - Bébé Sympa")
     with col_ref:
         if st.button("🔄 تحديث", use_container_width=True):
             st.cache_resource.clear()
@@ -91,22 +92,21 @@ try:
         with col1:
             st.metric("📊 إجمالي المعاملات", len(df))
         with col2:
-            unique_clients = df['المنزل'].nunique()
-            st.metric("🏠 عدد العملاء", unique_clients)
+            st.metric("🏠 عدد العملاء", df['المنزل'].nunique())
         with col3:
-            unique_products = df['المنتج'].nunique()
-            st.metric("📦 عدد المنتجات", unique_products)
+            st.metric("📦 عدد المنتجات", df['المنتج'].nunique())
         with col4:
-            total_qty = safe_int(df['الكمية'].sum())
-            st.metric("📈 إجمالي الكميات", f"{total_qty}")
+            ct_qty = safe_int(df[df['المرحلة'] == 'ct']['الكمية'].sum())
+            fn_qty = safe_int(df[df['المرحلة'] == 'fn']['الكمية'].sum())
+            st.metric("📈 قيد الإنتاج", f"{ct_qty} خياطة | {fn_qty} تغليف")
 
-    # التبويبات الرئيسية
-    tabs = st.tabs(["📥 دخول", "📤 إخراج", "🏢 المخزن", "💰 كشف حساب", "📜 السجل", "✅ إنجاز"])
+    # التبويبات
+    tabs = st.tabs(["📥 دخول (خياطة)", "🧵 خياطة → تغليف", "📦 تغليف → تسليم", "📊 التقرير", "📜 السجل"])
 
-    # ==================== تبويب 1: دخول ====================
+    # ==================== تبويب 1: دخول مباشر إلى الخياطة ====================
     with tabs[0]:
-        st.subheader("📥 تسجيل دخول بضاعة")
-        with st.form("in_form"):
+        st.subheader("📥 استلام طلبية جديدة - تدخل مباشرة للخياطة (CT)")
+        with st.form("ct_in_form"):
             col1, col2, col3 = st.columns(3)
             
             if not df.empty:
@@ -116,212 +116,204 @@ try:
                 homes = []
                 products = []
             
-            in_home = col1.selectbox("اسم العميل", options=homes if homes else ["لا توجد بيانات"])
-            in_product = col2.selectbox("اسم المنتج", options=products if products else ["لا توجد بيانات"])
-            in_qty = col3.number_input("الكمية", min_value=1, step=1)
+            client = col1.selectbox("اسم العميل", options=homes if homes else ["لا توجد بيانات"])
+            product = col2.selectbox("اسم المنتج", options=products if products else ["لا توجد بيانات"])
+            quantity = col3.number_input("الكمية", min_value=1, step=1)
             
-            # إضافة عميل جديد
             new_client = st.text_input("أو أدخل اسم عميل جديد (اختياري)")
             
-            if st.form_submit_button("✅ تسجيل الدخول", use_container_width=True):
-                final_client = new_client.strip() if new_client.strip() else in_home
-                if in_qty > 0 and in_product.strip() and final_client and final_client != "لا توجد بيانات":
-                    append_row([in_qty, in_product, final_client, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "st"])
+            if st.form_submit_button("✅ تسجيل دخول للخياطة", use_container_width=True):
+                final_client = new_client.strip() if new_client.strip() else client
+                if quantity > 0 and product.strip() and final_client and final_client != "لا توجد بيانات":
+                    append_row([quantity, product, final_client, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "ct"])
                     st.cache_resource.clear()
                     st.session_state.df = get_data()
-                    st.success(f"✅ تم تسجيل الدخول بنجاح للعميل: {final_client}")
+                    st.success(f"✅ تم إدخال {quantity} من {product} للعميل {final_client} إلى مرحلة الخياطة")
                     st.rerun()
                 else:
-                    st.warning("⚠️ يرجى إدخال جميع البيانات بشكل صحيح")
+                    st.warning("⚠️ يرجى إدخال جميع البيانات")
 
-    # ==================== تبويب 2: إخراج ====================
+    # ==================== تبويب 2: نقل من الخياطة إلى التغليف ====================
     with tabs[1]:
-        st.subheader("📤 تسجيل خروج بضاعة")
-        with st.form("out_form"):
-            col1, col2, col3 = st.columns(3)
+        st.subheader("🧵 نقل المنتجات من الخياطة (CT) إلى التغليف (FN)")
+        
+        ct_products = df[df['المرحلة'] == 'ct']
+        
+        if not ct_products.empty:
+            ct_summary = ct_products.groupby(['المنزل', 'المنتج'])['الكمية'].sum().reset_index()
             
-            if not df.empty:
-                homes = [h for h in df['المنزل'].unique() if h not in ["", "-", None]]
-                products = [p for p in df['المنتج'].unique() if p not in ["", "-", None]]
-            else:
-                homes = []
-                products = []
-            
-            out_home = col1.selectbox("اسم العميل", options=homes if homes else ["لا توجد بيانات"])
-            out_product = col2.selectbox("اسم المنتج", options=products if products else ["لا توجد بيانات"])
-            out_qty = col3.number_input("الكمية", min_value=1, step=1)
-            out_type = st.radio("نوع الخروج", ["كامل (ct)", "ناقص (fn)"], horizontal=True)
-            out_value = "ct" if "كامل" in out_type else "fn"
-            
-            if st.form_submit_button("✅ تسجيل الخروج", use_container_width=True):
-                if out_qty > 0 and out_product.strip() and out_home.strip() and out_home != "لا توجد بيانات":
-                    append_row([out_qty, out_product, out_home, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), out_value])
-                    st.cache_resource.clear()
-                    st.session_state.df = get_data()
-                    st.success(f"✅ تم تسجيل الخروج بنجاح للعميل: {out_home}")
-                    st.rerun()
-                else:
-                    st.warning("⚠️ يرجى إدخال جميع البيانات بشكل صحيح")
+            st.markdown("### المنتجات الجاهزة لنقلها إلى التغليف")
+            for _, row in ct_summary.iterrows():
+                with st.container():
+                    st.markdown(f"""
+                    <div class="phase-card">
+                        <b>العميل:</b> {row['المنزل']}<br>
+                        <b>المنتج:</b> {row['المنتج']}<br>
+                        <b>الكمية المتاحة:</b> {safe_int(row['الكمية'])} قطعة
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    col1, col2 = st.columns([3, 1])
+                    qty_to_fn = col1.number_input(
+                        f"كمية لنقلها للتغليف", 
+                        min_value=0, 
+                        max_value=safe_int(row['الكمية']),
+                        key=f"ct_to_fn_{row['المنزل']}_{row['المنتج']}"
+                    )
+                    if col2.button(f"نقل للتغليف", key=f"btn_ct_to_fn_{row['المنزل']}_{row['المنتج']}"):
+                        if qty_to_fn > 0:
+                            # إضافة إلى مرحلة التغليف
+                            append_row([qty_to_fn, row['المنتج'], row['المنزل'], datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "fn"])
+                            # خصم من مرحلة الخياطة
+                            append_row([-qty_to_fn, row['المنتج'], row['المنزل'], datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "ct"])
+                            st.cache_resource.clear()
+                            st.session_state.df = get_data()
+                            st.success(f"✅ تم نقل {qty_to_fn} قطعة إلى التغليف")
+                            st.rerun()
+                        else:
+                            st.warning("⚠️ يرجى إدخال كمية")
+        else:
+            st.info("لا توجد منتجات في مرحلة الخياطة حالياً")
+        
+        # عرض المنتجات تحت التغليف حالياً
+        st.markdown("---")
+        st.markdown("### 📦 المنتجات تحت التغليف حالياً")
+        fn_products = df[df['المرحلة'] == 'fn']
+        if not fn_products.empty:
+            fn_summary = fn_products.groupby(['المنزل', 'المنتج'])['الكمية'].sum().reset_index()
+            for _, row in fn_summary.iterrows():
+                st.info(f"👥 {row['المنزل']} - {row['المنتج']}: {safe_int(row['الكمية'])} قطعة تحت التغليف")
+        else:
+            st.info("لا توجد منتجات في مرحلة التغليف")
 
-    # ==================== تبويب 3: المخزن ====================
+    # ==================== تبويب 3: تسليم المنتجات بعد التغليف ====================
     with tabs[2]:
-        st.subheader("🏢 رصيد المخزن")
-        if not df.empty:
-            # حساب الداخل
-            stock_in = df[df['الحالة'] == 'st'].groupby('المنتج')['الكمية'].sum()
-            # حساب الخارج (ct + fn)
-            stock_out_ct = df[df['الحالة'] == 'ct'].groupby('المنتج')['الكمية'].sum()
-            stock_out_fn = df[df['الحالة'] == 'fn'].groupby('المنتج')['الكمية'].sum()
-            stock_out = stock_out_ct.add(stock_out_fn, fill_value=0)
+        st.subheader("📦 تسليم منتجات جاهزة (بعد التغليف)")
+        
+        fn_products = df[df['المرحلة'] == 'fn']
+        
+        if not fn_products.empty:
+            fn_summary = fn_products.groupby(['المنزل', 'المنتج'])['الكمية'].sum().reset_index()
             
-            # الرصيد
-            balance = (stock_in - stock_out).fillna(stock_in).reset_index()
-            balance.columns = ['المنتج', 'الرصيد']
-            # تحويل آمن إلى int
-            balance['الرصيد'] = balance['الرصيد'].apply(safe_int)
-            
-            total_balance = balance['الرصيد'].sum()
-            st.metric("📦 إجمالي الرصيد", f"{safe_int(total_balance)} قطعة")
+            st.markdown("### المنتجات الجاهزة للتسليم")
+            for _, row in fn_summary.iterrows():
+                st.success(f"🎁 {row['المنزل']} - {row['المنتج']}: {safe_int(row['الكمية'])} قطعة جاهزة")
             
             st.markdown("---")
-            for _, row in balance.iterrows():
-                if row['الرصيد'] > 0:
-                    st.info(f"✅ {row['المنتج']}: {row['الرصيد']} قطعة")
-                elif row['الرصيد'] < 0:
-                    st.error(f"⚠️ {row['المنتج']}: عجز {abs(row['الرصيد'])} قطعة")
+            st.subheader("تسليم للعميل")
+            
+            with st.form("delivery_form"):
+                col1, col2, col3 = st.columns(3)
+                clients = fn_summary['المنزل'].unique().tolist()
+                
+                del_client = col1.selectbox("العميل", clients)
+                # تصفية المنتجات لهذا العميل
+                client_products = fn_summary[fn_summary['المنزل'] == del_client]['المنتج'].tolist()
+                del_product = col2.selectbox("المنتج", client_products)
+                
+                max_qty = fn_summary[(fn_summary['المنزل'] == del_client) & (fn_summary['المنتج'] == del_product)]['الكمية'].values[0]
+                del_qty = col3.number_input("كمية التسليم", min_value=1, max_value=safe_int(max_qty))
+                
+                if st.form_submit_button("تسليم للعميل"):
+                    if del_qty > 0:
+                        # خصم من مرحلة التغليف (تسليم)
+                        append_row([-del_qty, del_product, del_client, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "fn"])
+                        st.cache_resource.clear()
+                        st.session_state.df = get_data()
+                        st.success(f"✅ تم تسليم {del_qty} قطعة للعميل {del_client}")
+                        st.rerun()
         else:
-            st.info("لا توجد بيانات")
+            st.info("لا توجد منتجات جاهزة للتسليم حالياً")
 
-    # ==================== تبويب 4: كشف حساب ====================
+    # ==================== تبويب 4: التقرير ====================
     with tabs[3]:
-        st.subheader("💰 كشف حساب العملاء")
+        st.subheader("📊 تقرير متابعة الإنتاج")
+        
         if not df.empty:
-            # إنشاء جدول محوري
-            pivot = df.pivot_table(
-                index='المنزل',
-                columns='الحالة',
-                values='الكمية',
-                aggfunc='sum',
-                fill_value=0
+            clients = df['المنزل'].unique()
+            clients = [c for c in clients if c not in ["", "-", None]]
+            
+            report_data = []
+            for client in clients:
+                client_df = df[df['المنزل'] == client]
+                ct_qty = safe_int(client_df[client_df['المرحلة'] == 'ct']['الكمية'].sum())
+                fn_qty = safe_int(client_df[client_df['المرحلة'] == 'fn']['الكمية'].sum())
+                # ملاحظة: الكمية التي تم تسليمها هي سالبة في مرحلة fn، لذا نحتاج لحساب التسليم منفصلاً
+                # لكن في نظامنا التسليم يتم بكتابة كمية سالبة، لذا إجمالي الكمية في fn = (تحت التغليف + تم تسليمه)
+                # لكن الأسهل: نعتبر أن الرصيد الإيجابي في fn هو الجاهز للتسليم
+                
+                report_data.append({
+                    'العميل': client,
+                    'تحت الخياطة (CT)': ct_qty,
+                    'تحت التغليف (FN)': fn_qty if fn_qty > 0 else 0,
+                    'تم التسليم': abs(fn_qty) if fn_qty < 0 else 0
+                })
+            
+            report_df = pd.DataFrame(report_data)
+            
+            def color_row(row):
+                if row['تحت التغليف (FN)'] > 0:
+                    return ['background-color: #4CAF50; color: white'] * len(row)
+                elif row['تحت الخياطة (CT)'] > 0:
+                    return ['background-color: #FFA500; color: black'] * len(row)
+                return [''] * len(row)
+            
+            st.dataframe(
+                report_df.style.apply(color_row, axis=1),
+                use_container_width=True,
+                hide_index=True
             )
             
-            # إعادة تسمية الأعمدة
-            pivot = pivot.rename(columns={
-                'st': '📥 دخول',
-                'ct': '📤 خروج كامل',
-                'fn': '📤 خروج ناقص'
+            st.markdown("---")
+            col_a, col_b, col_c = st.columns(3)
+            with col_a:
+                total_ct = safe_int(df[df['المرحلة'] == 'ct']['الكمية'].sum())
+                st.metric("🧵 تحت الخياطة", total_ct)
+            with col_b:
+                total_fn = safe_int(df[df['المرحلة'] == 'fn']['الكمية'].sum())
+                st.metric("📦 تحت التغليف", max(0, total_fn))
+            with col_c:
+                total_delivered = abs(min(0, total_fn)) if total_fn < 0 else 0
+                st.metric("✅ تم التسليم", total_delivered)
+            
+            # رسم بياني
+            st.markdown("---")
+            st.subheader("📈 سير الإنتاج")
+            chart_data = pd.DataFrame({
+                'المرحلة': ['تحت الخياطة', 'تحت التغليف', 'تم التسليم'],
+                'الكمية': [total_ct, max(0, total_fn), total_delivered]
             })
-            
-            # إضافة عمود الرصيد
-            pivot['💰 الرصيد'] = pivot.get('📥 دخول', 0) - (pivot.get('📤 خروج كامل', 0) + pivot.get('📤 خروج ناقص', 0))
-            # تحويل آمن إلى int لكل الأعمدة
-            for col in pivot.columns:
-                pivot[col] = pivot[col].apply(safe_int)
-            
-            st.dataframe(pivot, use_container_width=True)
+            st.bar_chart(chart_data.set_index('المرحلة'))
         else:
             st.info("لا توجد بيانات")
 
     # ==================== تبويب 5: السجل ====================
     with tabs[4]:
-        st.subheader("📜 سجل جميع المعاملات")
+        st.subheader("📜 سجل جميع العمليات")
         if not df.empty:
-            # تجهيز البيانات للعرض
             log_df = df.copy()
-            log_df = log_df.iloc[::-1]  # عكس الترتيب (الأحدث أولاً)
+            log_df = log_df.iloc[::-1]
             log_df['الكمية'] = log_df['الكمية'].apply(safe_int)
             
-            # تنسيق التاريخ
             log_df['التاريخ'] = pd.to_datetime(log_df['التاريخ'], errors='coerce')
             log_df['التاريخ'] = log_df['التاريخ'].dt.strftime('%Y-%m-%d %H:%M:%S')
-            log_df['التاريخ'] = log_df['التاريخ'].fillna('تاريخ غير معروف')
             
-            # ترجمة الحالة
-            log_df['نوع العملية'] = log_df['الحالة'].map({
-                'st': '📥 دخول',
-                'ct': '📤 خروج كامل',
-                'fn': '📤 خروج ناقص'
-            }).fillna(log_df['الحالة'])
+            log_df['المرحلة'] = log_df['المرحلة'].map({
+                'ct': '🧵 دخول خياطة',
+                'fn': '📦 تغليف / تسليم'
+            }).fillna(log_df['المرحلة'])
             
-            # اختيار الأعمدة للعرض
-            display_cols = ['المنزل', 'المنتج', 'الكمية', 'نوع العملية', 'التاريخ']
-            st.dataframe(log_df[display_cols], use_container_width=True)
+            st.dataframe(log_df, use_container_width=True)
             
-            # إحصائيات سريعة
-            col_a, col_b = st.columns(2)
-            with col_a:
-                in_count = len(log_df[log_df['الحالة'] == 'st'])
-                st.info(f"📥 عدد عمليات الدخول: {in_count}")
-            with col_b:
-                out_count = len(log_df[log_df['الحالة'].isin(['ct', 'fn'])])
-                st.error(f"📤 عدد عمليات الخروج: {out_count}")
-            
-            # زر تحميل
-            csv = log_df[display_cols].to_csv(index=False).encode('utf-8-sig')
+            csv = log_df.to_csv(index=False).encode('utf-8-sig')
             st.download_button(
                 label="📥 تحميل السجل كـ CSV",
                 data=csv,
-                file_name=f"history_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                file_name=f"workshop_log_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv",
             )
         else:
             st.info("السجل فارغ")
-
-    # ==================== تبويب 6: إنجاز ====================
-    with tabs[5]:
-        st.subheader("✅ إنجاز العملاء")
-        if not df.empty:
-            # حساب إجمالي لكل عميل
-            clients = df['المنزل'].unique()
-            clients = [c for c in clients if c not in ["", "-", None]]
-            
-            result_data = []
-            for client in clients:
-                client_df = df[df['المنزل'] == client]
-                total_in = client_df[client_df['الحالة'] == 'st']['الكمية'].sum()
-                total_out = client_df[client_df['الحالة'].isin(['ct', 'fn'])]['الكمية'].sum()
-                balance = total_in - total_out
-                products_count = client_df['المنتج'].nunique()
-                
-                result_data.append({
-                    'العميل': client,
-                    'عدد المنتجات': safe_int(products_count),
-                    'مجموع الدخول': safe_int(total_in),
-                    'مجموع الخروج': safe_int(total_out),
-                    'الرصيد': safe_int(balance)
-                })
-            
-            result_df = pd.DataFrame(result_data)
-            
-            # تلوين الصفوف
-            def color_row(row):
-                if row['الرصيد'] == 0:
-                    return ['background-color: #4CAF50; color: white'] * len(row)
-                elif row['الرصيد'] < 0:
-                    return ['background-color: #ff4b4b; color: white'] * len(row)
-                return [''] * len(row)
-            
-            st.dataframe(
-                result_df.style.apply(color_row, axis=1),
-                use_container_width=True,
-                hide_index=True
-            )
-            
-            # إحصائيات
-            st.markdown("---")
-            completed = len(result_df[result_df['الرصيد'] == 0])
-            negative = len(result_df[result_df['الرصيد'] < 0])
-            positive = len(result_df[result_df['الرصيد'] > 0])
-            
-            col_a, col_b, col_c = st.columns(3)
-            with col_a:
-                st.success(f"✅ منجز (رصيد 0): {completed}")
-            with col_b:
-                st.error(f"⚠️ عليهم دين: {negative}")
-            with col_c:
-                st.info(f"📦 لديهم رصيد: {positive}")
-        else:
-            st.info("لا توجد بيانات")
 
 except Exception as e:
     st.error(f"حدث خطأ: {e}")
