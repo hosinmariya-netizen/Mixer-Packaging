@@ -16,7 +16,7 @@ st.markdown("""
 
 @st.cache_resource
 def get_sheet():
-    creds_dict = st.secrets["gcp_service_account"]
+    creds_dict = st.secrets["connections"]["gsheets"]["credentials"]
     scopes = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
     client = gspread.authorize(creds)
