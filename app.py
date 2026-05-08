@@ -75,7 +75,7 @@ try:
                             if st.button(f"✓ تأكيد الاستلام", key=f"btn_{home}_{prod}", disabled=btn_disabled):
                                 if input_qty > 0:
                                     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                                    append_row([home, prod, input_qty, "st", now])
+                                    append_row([input_qty, prod, home, now, "st"])
                                     st.cache_resource.clear()
                                     st.success("تم تسجيل الاستلام بنجاح!")
                                     st.rerun()
