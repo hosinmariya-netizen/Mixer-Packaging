@@ -4,57 +4,19 @@ from google.oauth2.service_account import Credentials
 import pandas as pd
 import datetime
 
-# 1. إعدادات الصفحة والتصميم
+# 1. إعدادات الصفحة الأساسية
 st.set_page_config(page_title="Bébé Sympa", layout="wide")
 
+# تصميم CSS بسيط لضمان اتجاه النص ولون الهيدر
 st.markdown("""
     <style>
     .stApp { background-color: #0e1117; color: white; direction: rtl; }
-    
-    /* حاوية التمرير الأفقي والرأسي */
-    .table-viewport {
-        overflow-x: auto;
-        max-height: 550px;
-        border: 1px solid #444;
-        background: #1e2124;
-    }
-    
-    /* إجبار الجدول على عرض محدد لضمان السحب الجانبي دون تمطيط */
-    .fixed-table {
-        min-width: 900px;
-        width: 100%;
-        border-collapse: collapse;
-    }
-    
-    /* تثبيت الرأس البرتقالي */
-    .sticky-header th {
-        position: sticky;
-        top: 0;
-        background-color: #ffa500 !important;
-        color: black !important;
-        z-index: 100;
-        padding: 12px;
-        border: 1px solid #444;
-        white-space: nowrap;
-    }
-    
-    /* ضبط خلايا المحتوى */
-    .data-row td {
-        border: 1px solid #444;
-        text-align: center;
-        padding: 0px; /* لإعطاء مساحة للمدخلات */
-        height: 50px;
-    }
-    
-    .row-even { background-color: #D6C1A6; color: black; }
-    .row-odd { background-color: #1e2124; color: white; }
-    
-    /* تنسيق التاريخ ليظهر في سطرين صغيرين */
-    .time-cell { font-size: 11px; line-height: 1; }
+    /* تخصيص شكل جدول البيانات */
+    [data-testid="stTable"] { direction: rtl; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. الدوال البرمجية (Google Sheets)
+# 2. الدوال البرمجية للربط بـ Google Sheets
 @st.cache_resource
 def get_sheet():
     try:
@@ -73,75 +35,58 @@ def get_data():
         return df
     return pd.DataFrame()
 
-def update_val(row_idx, col_name, val):
-    s = get_sheet()
-    if s:
-        headers = s.row_values(1)
-        col_idx = headers.index(col_name) + 1
-        s.update_cell(row_idx + 2, col_idx, val)
+# 3. بناء واجهة المستخدم
+try:
+    df = get_data()
+    
+    col_t, col_btn = st.columns([4, 1])
+    col_t.title("🛡️ نظام الرقابة الذكي")
+    if col_btn.button("🔄 تحديث"):
         st.cache_resource.clear()
         st.rerun()
 
-# 3. الواجهة البرمجية
-try:
-    df = get_data()
-    if not df.empty:
-        df['الكمية'] = pd.to_numeric(df['الكمية'], errors='coerce').fillna(0)
+    tabs = st.tabs(["📊 الملخص", "📜 السجل (تعديل مباشر)"])
 
-    st.title("🛡️ الرقابة - نظام الجداول")
-    
-    tabs = st.tabs(["📊 الإحصائيات", "📜 السجل (History)"])
-
+    # --- تبويب السجل (History) ---
     with tabs[1]:
-        st.write("⬅️ اسحب يميناً ويساراً للتنقل في الجدول")
-        
-        # حاوية الجدول
-        st.markdown('<div class="table-viewport">', unsafe_allow_html=True)
-        
-        # عرض الرأس البرتقالي الثابت
-        # نستخدم columns لمحاكاة الصف لكي تتماشى مع المدخلات التفاعلية
-        header_cols = st.columns([0.7, 1.2, 1, 1.5, 2, 2.5])
-        labels = ["تصفير", "الكمية", "الحالة", "المنتج", "المنزل", "التاريخ"]
-        for col, label in zip(header_cols, labels):
-            col.markdown(f'<div style="background:#ffa500; color:black; padding:10px; border:1px solid #444; text-align:center; font-weight:bold; position:sticky; top:0; z-index:10;">{label}</div>', unsafe_allow_html=True)
-        
-        # عرض البيانات (آخر 40 سطر)
-        recent = df.tail(40).iloc[::-1]
-        
-        for i, row in recent.iterrows():
-            bg = "#D6C1A6" if i % 2 == 0 else "#1e2124"
-            tc = "black" if i % 2 == 0 else "white"
-            
-            # كل سطر عبارة عن مجموعة أعمدة لضمان بقائها أفقية
-            r_cols = st.columns([0.7, 1.2, 1, 1.5, 2, 2.5])
-            
-            # 1. زر التصفير (تعديل مباشر)
-            with r_cols[0]:
-                if st.button("❌", key=f"z_{i}"):
-                    update_val(i, 'الكمية', 0)
-            
-            # 2. تعديل الكمية (مربع إدخال مباشر)
-            with r_cols[1]:
-                new_q = st.number_input("", value=int(row['الكمية']), key=f"edit_q_{i}", label_visibility="collapsed")
-                if new_q != int(row['الكمية']):
-                    update_val(i, 'الكمية', new_q)
-            
-            # 3. الحالة
-            r_cols[2].markdown(f'<div style="background:{bg}; color:{tc}; border:1px solid #444; height:35px; display:flex; align-items:center; justify-content:center; font-weight:bold;">{row["الحالة"]}</div>', unsafe_allow_html=True)
-            
-            # 4. المنتج
-            r_cols[3].markdown(f'<div style="background:{bg}; color:{tc}; border:1px solid #444; height:35px; display:flex; align-items:center; justify-content:center;">{row["المنتج"]}</div>', unsafe_allow_html=True)
-            
-            # 5. المنزل
-            r_cols[4].markdown(f'<div style="background:{bg}; color:{tc}; border:1px solid #444; height:35px; display:flex; align-items:center; justify-content:center;">{row["المنزل"]}</div>', unsafe_allow_html=True)
-            
-            # 6. التاريخ (سطرين)
-            d_parts = row['التاريخ'].split(" ")
-            d_html = f"{d_parts[0]}<br>{d_parts[1]}" if len(d_parts) > 1 else row['التاريخ']
-            r_cols[5].markdown(f'<div style="background:{bg}; color:{tc}; border:1px solid #444; height:35px; font-size:11px; text-align:center; display:flex; align-items:center; justify-content:center;">{d_html}</div>', unsafe_allow_html=True)
+        st.subheader("سجل العمليات")
+        st.info("💡 يمكنك سحب الجدول لليسار، وتعديل الكمية مباشرة من الخانة.")
 
-        st.markdown('</div>', unsafe_allow_html=True)
+        if not df.empty:
+            # ترتيب البيانات: الأحدث أولاً
+            df_display = df.iloc[::-1].copy()
+            
+            # استخدام محرر البيانات الاحترافي (يضمن بقاء الجدول أفقياً)
+            edited_df = st.data_editor(
+                df_display,
+                column_config={
+                    "الكمية": st.column_config.NumberColumn("الكمية", width="medium", min_value=0),
+                    "التاريخ": st.column_config.TextColumn("التاريخ", width="large"),
+                    "الحالة": st.column_config.TextColumn("الحالة", width="small"),
+                },
+                disabled=["المنتج", "المنزل", "التاريخ", "الحالة"], # قفل الخانات الأخرى
+                hide_index=True,
+                use_container_width=True,
+                key="data_editor"
+            )
+
+            # زر الحفظ (عند تغيير أي كمية)
+            if st.button("💾 حفظ التعديلات في الإكسل"):
+                s = get_sheet()
+                # إعادة البيانات لأصلها (بدون قلب) وتحديثها
+                df_to_save = edited_df.iloc[::-1]
+                s.update([df_to_save.columns.values.tolist()] + df_to_save.values.tolist())
+                st.success("تم تحديث البيانات بنجاح!")
+                st.cache_resource.clear()
+                st.rerun()
+        
+    # --- تبويب الملخص ---
+    with tabs[0]:
+        if not df.empty:
+            st.write("📈 إجمالي الكميات لكل منزل:")
+            summary = df.groupby(['المنزل', 'الحالة'])['الكمية'].sum().unstack(fill_value=0)
+            st.dataframe(summary, use_container_width=True)
 
 except Exception as e:
     st.error(f"حدث خطأ: {e}")
-                                     
+    
