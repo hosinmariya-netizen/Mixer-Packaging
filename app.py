@@ -72,15 +72,18 @@ try:
             prods = home_data['المنتج'].unique()
 
             pending_count = 0
+            total_remaining = 0
             for prod in prods:
                 p_data = home_data[home_data['المنتج'] == prod]
                 total_out = p_data[p_data['الحالة'].isin(['ct', 'fn'])]['الكمية'].sum()
                 already_in = p_data[p_data['الحالة'] == 'st']['الكمية'].sum()
-                if total_out - already_in > 0:
+                remaining = total_out - already_in
+                if remaining > 0:
                     pending_count += 1
+                    total_remaining += remaining
 
             badge = f"🟢 {pending_count}" if pending_count > 0 else "🔴 0"
-            label = f"🏠 منزل: {home}  {badge}"
+            label = f"🏠 منزل: {home}  {badge}  |  📦 {int(total_remaining)}"
 
             with st.expander(label):
                 for prod in prods:
