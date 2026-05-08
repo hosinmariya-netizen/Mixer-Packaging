@@ -1,173 +1,86 @@
-import streamlit as st
-import gspread
-from google.oauth2.service_account import Credentials
-import pandas as pd
-import datetime
-
-# 1. إعداد الصفحة والتنسيق الجمالي
-st.set_page_config(page_title="Bébé Sympa - الرقابة الذكية", layout="wide", page_icon="🛡️")
-
-st.markdown("""
-    <style>
-    .stApp {
-        background-color: #0e1117;
-        color: white;
-        direction: rtl;
-        background-image: url("https://raw.githubusercontent.com/hosinmariya-netizen/Mixer-Packaging/main/images%20(5)%20(5).jpeg");
-        background-size: cover;
-        background-position: center;
-        background-attachment: fixed;
-    }
-    .stApp::before {
-        content: "";
-        position: fixed;
-        top: 0; left: 0;
-        width: 100%; height: 100%;
-        background-color: rgba(14, 17, 23, 0.92);
-        z-index: 0;
-    }
-    /* تنسيق الجداول والسجل */
-    .history-row-even { background-color: #D6C1A6; color: #000; padding: 5px; border-radius: 5px; margin-bottom: 2px; }
-    .history-row-odd { background-color: rgba(255, 165, 0, 0.1); color: #fff; padding: 5px; border-radius: 5px; margin-bottom: 2px; border: 1px solid #ffa500; }
-    .stButton>button { border-radius: 8px; }
-    .warning-text { color: #ff4b4b; font-weight: bold; }
-    </style>
-    """, unsafe_allow_html=True)
-
-# 2. وظائف الاتصال ببيانات جوجل
-@st.cache_resource
-def get_sheet():
-    try:
-        creds_dict = st.secrets["gcp_service_account"]
-        scopes = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-        client = gspread.authorize(creds)
-        sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1JZUGpM6RBYDiLfX1Z5qKH5C6E2pfaRHF6dCDWmGXTso")
-        return sheet.sheet1
-    except Exception as e:
-        st.error(f"خطأ في الاتصال: {e}")
-        return None
-
-def get_data():
-    sheet = get_sheet()
-    if sheet:
-        data = sheet.get_all_records()
-        return pd.DataFrame(data)
-    return pd.DataFrame()
-
-def append_row(row):
-    sheet = get_sheet()
-    if sheet:
-        sheet.append_row(row)
-
-# 3. معالجة البيانات والواجهة
-try:
-    df = get_data()
-    if not df.empty:
-        df.columns = df.columns.str.strip()
-        if 'الكمية' in df.columns:
-            df['الكمية'] = pd.to_numeric(df['الكمية'], errors='coerce').fillna(0)
-
-    # الهيدر العلوي
-    col_t, col_ref = st.columns([4, 1])
-    with col_t: st.title("🛡️ نظام الرقابة المطور")
-    with col_ref:
-        if st.button("🔄 تحديث"):
-            st.cache_resource.clear()
-            st.rerun()
-
-    tabs = st.tabs(["🏠 استلام", "📤 إخراج", "🏢 المخزن", "💰 كشف حساب", "📜 History"])
-
-    # --- TAB 1: استلام من المنزل ---
-    with tabs[0]:
-        st.subheader("📦 استلام الإنتاج")
-        if not df.empty:
-            homes = [h for h in df['المنزل'].unique() if h not in ["-", ""]]
-            for home in homes:
-                with st.expander(f"🏠 منزل: {home}"):
-                    home_data = df[df['المنزل'] == home]
-                    for prod in home_data['المنتج'].unique():
-                        p_data = home_data[home_data['المنتج'] == prod]
-                        rem = p_data[p_data['الحالة'].isin(['ct', 'fn'])]['الكمية'].sum() - p_data[p_data['الحالة'] == 'st']['الكمية'].sum()
-                        if rem > 0:
-                            st.write(f"**{prod}** (المتبقي: {int(rem)})")
-                            c1, c2 = st.columns([3, 1])
-                            qty_in = c1.number_input(f"الكمية", min_value=0, key=f"in_{home}_{prod}")
-                            if c2.button("تأكيد", key=f"btn_in_{home}_{prod}"):
-                                append_row([qty_in, prod, home, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "st"])
-                                st.cache_resource.clear()
-                                st.rerun()
-
-    # --- TAB 2: إخراج للمنزل ---
-    with tabs[1]:
-        st.subheader("📤 إخراج بضاعة جديدة")
-        with st.form("out_form"):
-            f1, f2, f3 = st.columns(3)
-            o_h = f1.text_input("اسم المنزل")
-            o_p = f2.text_input("اسم المنتج")
-            o_q = f3.number_input("الكمية", min_value=1)
-            o_s = st.radio("الحالة", ["ct", "fn"], horizontal=True)
-            if st.form_submit_button("تسجيل الخروج"):
-                append_row([o_q, o_p, o_h, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), o_s])
-                st.cache_resource.clear()
-                st.rerun()
-
-    # --- TAB 3: المخزن النهائي ---
-    with tabs[2]:
-        st.subheader("🏢 رصيد الشركة")
-        if not df.empty:
-            s_in = df[df['الحالة'] == 'st'].groupby('المنتج')['الكمية'].sum()
-            s_out = df[df['الحالة'] == 'cl'].groupby('المنتج')['الكمية'].sum()
-            stock = s_in.subtract(s_out, fill_value=0).reset_index()
-            for _, r in stock.iterrows():
-                if r['الكمية'] > 0:
-                    st.info(f"📦 {r['المنتج']}: {int(r['الكمية'])} قطعة متوفرة")
-
-    # --- TAB 4: كشف الحساب ---
-    with tabs[3]:
-        if not df.empty:
-            st.dataframe(df.pivot_table(index='المنزل', columns='الحالة', values='الكمية', aggfunc='sum', fill_value=0), use_container_width=True)
-
-    # --- TAB 5: السجل (HISTORY) ---
+    # --- TAB 5: السجل (HISTORY) بتصميم EXCEL ---
     with tabs[4]:
-        st.subheader("📜 سجل المعاملات (History)")
+        st.subheader("📜 سجل المعاملات (Excel Style)")
         if not df.empty:
-            history_df = df.iloc[::-1].head(50) # عرض آخر 50 عملية
+            history_df = df.iloc[::-1].head(60) # عرض آخر 60 عملية
+
+            # تعريف ستايل الجدول (CSS)
+            st.markdown("""
+                <style>
+                .excel-table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                    font-size: 13px;
+                    direction: rtl;
+                    border: 1px solid #444;
+                }
+                .excel-table th {
+                    background-color: #ffa500;
+                    color: black;
+                    border: 1px solid #444;
+                    padding: 8px;
+                    text-align: center;
+                }
+                .excel-table td {
+                    border: 1px solid #444;
+                    padding: 4px 8px;
+                    text-align: center;
+                }
+                /* ألوان الصفوف المتبادلة */
+                .excel-table tr:nth-child(even) { background-color: #D6C1A6; color: black; }
+                .excel-table tr:nth-child(odd) { background-color: #1e2124; color: white; }
+                
+                .settle-btn-style {
+                    background-color: #28a745;
+                    color: white;
+                    border: none;
+                    padding: 2px 10px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                }
+                </style>
+            """, unsafe_allow_html=True)
+
+            # إنشاء رأس الجدول
+            cols = st.columns([1.5, 1.5, 1, 1, 2, 1])
+            fields = ["المنزل", "المنتج", "الحالة", "الكمية", "التاريخ", "الإجراء"]
             
-            # عناوين الجدول
-            h_cols = st.columns([1.5, 1.5, 1, 1, 2, 1])
-            headers = ["المنزل", "المنتج", "الحالة", "الكمية", "التاريخ", "التسوية"]
-            for col, text in zip(h_cols, headers): col.markdown(f"**{text}**")
-            
+            # عرض البيانات بطريقة تشبه الخلايا
             for i, row in history_df.iterrows():
-                # تلوين الأسطر بشكل متبادل
-                row_class = "history-row-even" if i % 2 == 0 else "history-row-odd"
+                # تحديد لون الصف بناءً على الفردي والزوجي يدويًا لتوافق Streamlit
+                bg_color = "#D6C1A6" if i % 2 == 0 else "transparent"
+                text_color = "black" if i % 2 == 0 else "white"
+                border_style = "1px solid #444"
                 
                 with st.container():
-                    st.markdown(f'<div class="{row_class}">', unsafe_allow_html=True)
+                    # محاكاة صف الإكسل باستخدام columns مع ستايل مخصص
                     c1, c2, c3, c4, c5, c6 = st.columns([1.5, 1.5, 1, 1, 2, 1])
                     
-                    c1.write(row['المنزل'])
-                    c2.write(row['المنتج'])
-                    c3.write(row['الحالة'])
-                    c4.write(str(int(row['الكمية'])))
-                    c5.write(row['التاريخ'])
+                    # عرض البيانات داخل حاويات ملونة
+                    c1.markdown(f'<div style="background:{bg_color}; color:{text_color}; border:{border_style}; padding:5px; text-align:center;">{row["المنزل"]}</div>', unsafe_allow_html=True)
+                    c2.markdown(f'<div style="background:{bg_color}; color:{text_color}; border:{border_style}; padding:5px; text-align:center;">{row["المنتج"]}</div>', unsafe_allow_html=True)
                     
-                    # زر التسوية التلقائية
+                    # تلوين الحالة (CT/FN بلون أورنج)
+                    status_bg = "#ffa500" if row['الحالة'] in ['ct', 'fn'] else bg_color
+                    c3.markdown(f'<div style="background:{status_bg}; color:black; border:{border_style}; padding:5px; text-align:center; font-weight:bold;">{row["الحالة"]}</div>', unsafe_allow_html=True)
+                    
+                    c4.markdown(f'<div style="background:{bg_color}; color:{text_color}; border:{border_style}; padding:5px; text-align:center;">{int(row["الكمية"])}</div>', unsafe_allow_html=True)
+                    c5.markdown(f'<div style="background:{bg_color}; color:{text_color}; border:{border_style}; padding:5px; text-align:center;">{row["التاريخ"]}</div>', unsafe_allow_html=True)
+                    
+                    # زر التسوية
                     if row['الحالة'] in ['ct', 'fn'] and row['المنزل'] != "-":
-                        if c6.button("✅", key=f"hist_set_{i}"):
-                            # حساب المتبقي الفعلي للمنزل
+                        if c6.button("تسوية", key=f"exc_set_{i}"):
                             p_data = df[(df['المنزل'] == row['المنزل']) & (df['المنتج'] == row['المنتج'])]
                             actual_rem = p_data[p_data['الحالة'].isin(['ct', 'fn'])]['الكمية'].sum() - p_data[p_data['الحالة'] == 'st']['الكمية'].sum()
                             if actual_rem > 0:
                                 append_row([actual_rem, row['المنتج'], row['المنزل'], datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "st"])
                                 st.cache_resource.clear()
-                                st.success("تمت التسوية!")
+                                st.success("✅ تمت التسوية")
                                 st.rerun()
-                    st.markdown('</div>', unsafe_allow_html=True)
-        else:
-            st.info("السجل فارغ حالياً.")
+                    else:
+                        c6.markdown(f'<div style="background:{bg_color}; border:{border_style}; padding:5px; text-align:center;">-</div>', unsafe_allow_html=True)
 
-except Exception as e:
-    st.error(f"حدث خطأ: {e}")
-        
+        else:
+            st.info("لا توجد بيانات لعرضها.")
+                    
