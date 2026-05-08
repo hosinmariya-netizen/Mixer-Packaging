@@ -37,6 +37,11 @@ st.markdown("""
     }
     .warning-text { color: #ff4b4b; font-weight: bold; }
     .success-text { color: #4CAF50; font-weight: bold; }
+    
+    /* تنسيق جدول التاريخ بالألوان */
+    .dataframe td {
+        text-align: center;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -103,37 +108,38 @@ try:
             total_qty = df['الكمية'].sum()
             st.metric("📈 إجمالي الكميات", f"{int(total_qty)}")
 
-    tabs = st.tabs(["🏠 استلام", "📤 إخراج", "🏢 المخزن", "💰 كشف حساب", "📜 History", "✅ إنجاز"])
+    tabs = st.tabs(["📥 دخول", "📤 إخراج", "🏢 المخزن", "💰 كشف حساب", "📜 History", "✅ إنجاز"])
 
-    # --- TAB 1: استلام ---
+    # --- TAB 1: دخول (جديد بنفس طريقة الإخراج) ---
     with tabs[0]:
-        st.subheader("📦 استلام الإنتاج")
-        if not df.empty:
-            homes = [h for h in df['المنزل'].unique() if h not in ["-", ""]]
-            if homes:
-                for home in homes:
-                    with st.expander(f"🏠 منزل: {home}"):
-                        home_data = df[df['المنزل'] == home]
-                        for prod in home_data['المنتج'].unique():
-                            p_data = home_data[home_data['المنتج'] == prod]
-                            rem = p_data[p_data['الحالة'].isin(['ct', 'fn'])]['الكمية'].sum() - p_data[p_data['الحالة'] == 'st']['الكمية'].sum()
-                            if rem > 0:
-                                st.write(f"**{prod}** (المتبقي: {int(rem)})")
-                                c1, c2 = st.columns([3, 1])
-                                qty_in = c1.number_input(f"الكمية", min_value=0, key=f"in_{home}_{prod}")
-                                if c2.button("تأكيد", key=f"btn_in_{home}_{prod}"):
-                                    if qty_in > 0:
-                                        append_row([qty_in, prod, home, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "st"])
-                                        st.cache_resource.clear()
-                                        st.session_state.df = get_data()
-                                        st.success("✅ تمت العملية بنجاح")
-                                        st.rerun()
-                                    else:
-                                        st.warning("⚠️ يرجى إدخال كمية صحيحة")
+        st.subheader("📥 دخول بضاعة جديدة")
+        with st.form("in_form"):
+            f1, f2, f3 = st.columns(3)
+            
+            if not df.empty:
+                homes = [h for h in df['المنزل'].unique() if h not in ["", "-"]]
+                products = [p for p in df['المنتج'].unique() if p not in ["", "-"]]
             else:
-                st.info("لا توجد منازل مسجلة حالياً")
-        else:
-            st.info("لا توجد بيانات لعرضها")
+                homes = []
+                products = []
+
+            in_home = f1.selectbox("اسم المنزل", options=homes if homes else ["لا توجد بيانات"], key="in_home")
+            in_product = f2.selectbox("اسم المنتج", options=products if products else ["لا توجد بيانات"], key="in_product")
+            in_qty = f3.number_input("الكمية", min_value=1, key="in_qty")
+            
+            col_btn1, col_btn2, col_btn3 = st.columns([1,2,1])
+            with col_btn2:
+                submitted = st.form_submit_button("تسجيل الدخول", use_container_width=True)
+            
+            if submitted:
+                if in_qty > 0 and in_product.strip() and in_home.strip() and in_home != "لا توجد بيانات":
+                    append_row([in_qty, in_product, in_home, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "st"])
+                    st.cache_resource.clear()
+                    st.session_state.df = get_data()
+                    st.success("✅ تم تسجيل الدخول بنجاح")
+                    st.rerun()
+                else:
+                    st.warning("⚠️ يرجى إدخال جميع البيانات بشكل صحيح")
 
     # --- TAB 2: إخراج ---
     with tabs[1]:
@@ -163,7 +169,7 @@ try:
                     append_row([o_q, o_p, o_h, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), o_s_value])
                     st.cache_resource.clear()
                     st.session_state.df = get_data()
-                    st.success("✅ تم تسجيل العملية بنجاح")
+                    st.success("✅ تم تسجيل الخروج بنجاح")
                     st.rerun()
                 else:
                     st.warning("⚠️ يرجى إدخال جميع البيانات بشكل صحيح")
@@ -173,7 +179,9 @@ try:
         st.subheader("🏢 رصيد الشركة")
         if not df.empty:
             s_in = df[df['الحالة'] == 'st'].groupby('المنتج')['الكمية'].sum()
-            s_out = df[df['الحالة'] == 'cl'].groupby('المنتج')['الكمية'].sum()
+            s_out_ct = df[df['الحالة'] == 'ct'].groupby('المنتج')['الكمية'].sum()
+            s_out_fn = df[df['الحالة'] == 'fn'].groupby('المنتج')['الكمية'].sum()
+            s_out = s_out_ct.add(s_out_fn, fill_value=0)
             stock = s_in.subtract(s_out, fill_value=0).reset_index()
             stock.columns = ['المنتج', 'الكمية']
             total_stock = stock['الكمية'].sum()
@@ -205,7 +213,7 @@ try:
             
             # إعادة تسمية الأعمدة للتوضيح
             pivot_table = pivot_table.rename(columns={
-                'st': 'استلام',
+                'st': 'دخول',
                 'ct': 'خروج كامل',
                 'fn': 'خروج ناقص'
             })
@@ -217,20 +225,66 @@ try:
         else:
             st.info("لا توجد بيانات لعرضها")
 
-    # --- TAB 5: السجل ---
+    # --- TAB 5: History مع ألوان ---
     with tabs[4]:
         st.subheader("📜 سجل المعاملات (آخر 50)")
         if not df.empty:
-            history_df = df.iloc[::-1].head(50)
+            history_df = df.iloc[::-1].head(50).copy()
+            
             # تحويل الكمية إلى عدد صحيح
             history_df['الكمية'] = history_df['الكمية'].astype(int)
+            
             # تنسيق التاريخ للعرض
             history_df['التاريخ'] = pd.to_datetime(history_df['التاريخ'], errors='coerce')
             history_df['التاريخ'] = history_df['التاريخ'].dt.strftime('%Y-%m-%d %H:%M:%S')
-            st.dataframe(history_df, use_container_width=True)
+            
+            # إضافة عمود نوع العملية للتلوين
+            def get_operation_type(status):
+                if status == 'st':
+                    return 'دخول'
+                else:
+                    return 'خروج'
+            
+            history_df['نوع العملية'] = history_df['الحالة'].apply(get_operation_type)
+            
+            # تلوين الصفوف حسب نوع العملية
+            def color_rows(row):
+                if row['نوع العملية'] == 'دخول':
+                    return ['background-color: #4CAF50; color: white'] * len(row)
+                else:
+                    return ['background-color: #ff4b4b; color: white'] * len(row)
+            
+            # إعادة تسمية أعمدة الحالة للتوضيح
+            history_df['الحالة'] = history_df['الحالة'].map({
+                'st': 'دخول',
+                'ct': 'خروج كامل',
+                'fn': 'خروج ناقص'
+            }).fillna(history_df['الحالة'])
+            
+            # عرض الجدول بالألوان
+            st.dataframe(
+                history_df[['المنزل', 'المنتج', 'الكمية', 'الحالة', 'التاريخ']].style.apply(color_rows, axis=1),
+                use_container_width=True,
+                column_config={
+                    "المنزل": "المنزل",
+                    "المنتج": "المنتج", 
+                    "الكمية": st.column_config.NumberColumn("الكمية", format="%d"),
+                    "الحالة": "الحالة",
+                    "التاريخ": "التاريخ"
+                }
+            )
+            
+            # إحصائيات سريعة
+            col_stat1, col_stat2 = st.columns(2)
+            with col_stat1:
+                total_in = len(history_df[history_df['نوع العملية'] == 'دخول'])
+                st.info(f"📥 عدد عمليات الدخول: {total_in}")
+            with col_stat2:
+                total_out = len(history_df[history_df['نوع العملية'] == 'خروج'])
+                st.error(f"📤 عدد عمليات الخروج: {total_out}")
             
             # زر لتصدير البيانات
-            csv = history_df.to_csv(index=False).encode('utf-8-sig')
+            csv = history_df[['المنزل', 'المنتج', 'الكمية', 'الحالة', 'التاريخ']].to_csv(index=False).encode('utf-8-sig')
             st.download_button(
                 label="📥 تحميل السجل كـ CSV",
                 data=csv,
