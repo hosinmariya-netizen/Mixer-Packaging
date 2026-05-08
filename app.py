@@ -3,6 +3,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
 import datetime
+import numpy as np
 
 # 1. إعداد الصفحة والتنسيق الجمالي
 st.set_page_config(page_title="Bébé Sympa - الرقابة الذكية", layout="wide", page_icon="🛡️")
@@ -48,6 +49,7 @@ def get_data():
             if col not in df.columns:
                 df[col] = ""
         df = df[expected_cols]
+        # تحويل الكمية إلى رقم مع التعامل مع القيم الخالية
         df['الكمية'] = pd.to_numeric(df['الكمية'], errors='coerce').fillna(0)
         return df
     return pd.DataFrame()
@@ -56,6 +58,15 @@ def append_row(row):
     sheet = get_sheet()
     if sheet:
         sheet.append_row(row)
+
+# دالة آمنة للتحويل إلى int
+def safe_int(value):
+    try:
+        if pd.isna(value) or np.isinf(value):
+            return 0
+        return int(float(value))
+    except:
+        return 0
 
 # 3. الواجهة الرئيسية
 try:
@@ -80,12 +91,14 @@ try:
         with col1:
             st.metric("📊 إجمالي المعاملات", len(df))
         with col2:
-            st.metric("🏠 عدد العملاء", df['المنزل'].nunique())
+            unique_clients = df['المنزل'].nunique()
+            st.metric("🏠 عدد العملاء", unique_clients)
         with col3:
-            st.metric("📦 عدد المنتجات", df['المنتج'].nunique())
+            unique_products = df['المنتج'].nunique()
+            st.metric("📦 عدد المنتجات", unique_products)
         with col4:
-            total_qty = df['الكمية'].sum()
-            st.metric("📈 إجمالي الكميات", f"{int(total_qty)}")
+            total_qty = safe_int(df['الكمية'].sum())
+            st.metric("📈 إجمالي الكميات", f"{total_qty}")
 
     # التبويبات الرئيسية
     tabs = st.tabs(["📥 دخول", "📤 إخراج", "🏢 المخزن", "💰 كشف حساب", "📜 السجل", "✅ إنجاز"])
@@ -97,15 +110,15 @@ try:
             col1, col2, col3 = st.columns(3)
             
             if not df.empty:
-                homes = [h for h in df['المنزل'].unique() if h not in ["", "-"]]
-                products = [p for p in df['المنتج'].unique() if p not in ["", "-"]]
+                homes = [h for h in df['المنزل'].unique() if h not in ["", "-", None]]
+                products = [p for p in df['المنتج'].unique() if p not in ["", "-", None]]
             else:
                 homes = []
                 products = []
             
             in_home = col1.selectbox("اسم العميل", options=homes if homes else ["لا توجد بيانات"])
             in_product = col2.selectbox("اسم المنتج", options=products if products else ["لا توجد بيانات"])
-            in_qty = col3.number_input("الكمية", min_value=1)
+            in_qty = col3.number_input("الكمية", min_value=1, step=1)
             
             # إضافة عميل جديد
             new_client = st.text_input("أو أدخل اسم عميل جديد (اختياري)")
@@ -128,15 +141,15 @@ try:
             col1, col2, col3 = st.columns(3)
             
             if not df.empty:
-                homes = [h for h in df['المنزل'].unique() if h not in ["", "-"]]
-                products = [p for p in df['المنتج'].unique() if p not in ["", "-"]]
+                homes = [h for h in df['المنزل'].unique() if h not in ["", "-", None]]
+                products = [p for p in df['المنتج'].unique() if p not in ["", "-", None]]
             else:
                 homes = []
                 products = []
             
             out_home = col1.selectbox("اسم العميل", options=homes if homes else ["لا توجد بيانات"])
             out_product = col2.selectbox("اسم المنتج", options=products if products else ["لا توجد بيانات"])
-            out_qty = col3.number_input("الكمية", min_value=1)
+            out_qty = col3.number_input("الكمية", min_value=1, step=1)
             out_type = st.radio("نوع الخروج", ["كامل (ct)", "ناقص (fn)"], horizontal=True)
             out_value = "ct" if "كامل" in out_type else "fn"
             
@@ -164,10 +177,11 @@ try:
             # الرصيد
             balance = (stock_in - stock_out).fillna(stock_in).reset_index()
             balance.columns = ['المنتج', 'الرصيد']
-            balance['الرصيد'] = balance['الرصيد'].astype(int)
+            # تحويل آمن إلى int
+            balance['الرصيد'] = balance['الرصيد'].apply(safe_int)
             
             total_balance = balance['الرصيد'].sum()
-            st.metric("📦 إجمالي الرصيد", f"{int(total_balance)} قطعة")
+            st.metric("📦 إجمالي الرصيد", f"{safe_int(total_balance)} قطعة")
             
             st.markdown("---")
             for _, row in balance.iterrows():
@@ -200,7 +214,9 @@ try:
             
             # إضافة عمود الرصيد
             pivot['💰 الرصيد'] = pivot.get('📥 دخول', 0) - (pivot.get('📤 خروج كامل', 0) + pivot.get('📤 خروج ناقص', 0))
-            pivot = pivot.astype(int)
+            # تحويل آمن إلى int لكل الأعمدة
+            for col in pivot.columns:
+                pivot[col] = pivot[col].apply(safe_int)
             
             st.dataframe(pivot, use_container_width=True)
         else:
@@ -213,11 +229,12 @@ try:
             # تجهيز البيانات للعرض
             log_df = df.copy()
             log_df = log_df.iloc[::-1]  # عكس الترتيب (الأحدث أولاً)
-            log_df['الكمية'] = log_df['الكمية'].astype(int)
+            log_df['الكمية'] = log_df['الكمية'].apply(safe_int)
             
             # تنسيق التاريخ
             log_df['التاريخ'] = pd.to_datetime(log_df['التاريخ'], errors='coerce')
             log_df['التاريخ'] = log_df['التاريخ'].dt.strftime('%Y-%m-%d %H:%M:%S')
+            log_df['التاريخ'] = log_df['التاريخ'].fillna('تاريخ غير معروف')
             
             # ترجمة الحالة
             log_df['نوع العملية'] = log_df['الحالة'].map({
@@ -256,7 +273,7 @@ try:
         if not df.empty:
             # حساب إجمالي لكل عميل
             clients = df['المنزل'].unique()
-            clients = [c for c in clients if c not in ["", "-"]]
+            clients = [c for c in clients if c not in ["", "-", None]]
             
             result_data = []
             for client in clients:
@@ -268,10 +285,10 @@ try:
                 
                 result_data.append({
                     'العميل': client,
-                    'عدد المنتجات': int(products_count),
-                    'مجموع الدخول': int(total_in),
-                    'مجموع الخروج': int(total_out),
-                    'الرصيد': int(balance)
+                    'عدد المنتجات': safe_int(products_count),
+                    'مجموع الدخول': safe_int(total_in),
+                    'مجموع الخروج': safe_int(total_out),
+                    'الرصيد': safe_int(balance)
                 })
             
             result_df = pd.DataFrame(result_data)
@@ -308,3 +325,4 @@ try:
 
 except Exception as e:
     st.error(f"حدث خطأ: {e}")
+    st.stop()
