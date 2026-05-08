@@ -26,8 +26,6 @@ st.markdown("""
         background-color: rgba(14, 17, 23, 0.92);
         z-index: 0;
     }
-    .history-row-even { background-color: #D6C1A6; color: #000; padding: 5px; border-radius: 5px; margin-bottom: 2px; }
-    .history-row-odd { background-color: rgba(255, 165, 0, 0.1); color: #fff; padding: 5px; border-radius: 5px; margin-bottom: 2px; border: 1px solid #ffa500; }
     .stButton>button { border-radius: 8px; }
     .warning-text { color: #ff4b4b; font-weight: bold; }
     </style>
@@ -81,7 +79,7 @@ try:
             st.session_state.df = get_data()
             st.rerun()
 
-    tabs = st.tabs(["🏠 استلام", "📤 إخراج", "🏢 المخزن", "💰 كشف حساب", "📜 History"])
+    tabs = st.tabs(["🏠 استلام", "📤 إخراج", "🏢 المخزن", "💰 كشف حساب", "📜 History", "✅ إنجاز"])
 
     # --- TAB 1: استلام من المنزل ---
     with tabs[0]:
@@ -113,10 +111,15 @@ try:
         st.subheader("📤 إخراج بضاعة جديدة")
         with st.form("out_form"):
             f1, f2, f3 = st.columns(3)
-            o_h = f1.text_input("اسم المنزل")
-            o_p = f2.text_input("اسم المنتج")
+
+            homes = [h for h in df['المنزل'].unique() if h not in ["", "-"]]
+            products = [p for p in df['المنتج'].unique() if p not in ["", "-"]]
+
+            o_h = f1.selectbox("اسم المنزل", options=homes)
+            o_p = f2.selectbox("اسم المنتج", options=products)
             o_q = f3.number_input("الكمية", min_value=1)
             o_s = st.radio("الحالة", ["ct", "fn"], horizontal=True)
+
             if st.form_submit_button("تسجيل الخروج"):
                 if o_q > 0 and o_p.strip() and o_h.strip():
                     append_row([o_q, o_p, o_h, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), o_s])
@@ -135,24 +138,3 @@ try:
             s_out = df[df['الحالة'] == 'cl'].groupby('المنتج')['الكمية'].sum()
             stock = s_in.subtract(s_out, fill_value=0).reset_index()
             total_stock = stock['الكمية'].sum()
-            st.metric("إجمالي الرصيد", f"{int(total_stock)} قطعة")
-            for _, r in stock.iterrows():
-                if r['الكمية'] > 0:
-                    st.info(f"📦 {r['المنتج']}: {int(r['الكمية'])} قطعة متوفرة")
-
-    # --- TAB 4: كشف الحساب ---
-    with tabs[3]:
-        if not df.empty:
-            st.dataframe(df.pivot_table(index='المنزل', columns='الحالة', values='الكمية', aggfunc='sum', fill_value=0), use_container_width=True)
-
-    # --- TAB 5: السجل (HISTORY) ---
-    with tabs[4]:
-        st.subheader("📜 سجل المعاملات (History)")
-        if not df.empty:
-            history_df = df.iloc[::-1].head(50)
-            st.dataframe(history_df, use_container_width=True)
-        else:
-            st.info("السجل فارغ حالياً.")
-
-except Exception as e:
-    st.error(f"حدث خطأ: {e}")
