@@ -26,7 +26,6 @@ st.markdown("""
         background-color: rgba(14, 17, 23, 0.92);
         z-index: 0;
     }
-    /* تنسيق الجداول والسجل */
     .history-row-even { background-color: #D6C1A6; color: #000; padding: 5px; border-radius: 5px; margin-bottom: 2px; }
     .history-row-odd { background-color: rgba(255, 165, 0, 0.1); color: #fff; padding: 5px; border-radius: 5px; margin-bottom: 2px; border: 1px solid #ffa500; }
     .stButton>button { border-radius: 8px; }
@@ -52,7 +51,14 @@ def get_data():
     sheet = get_sheet()
     if sheet:
         data = sheet.get_all_records()
-        return pd.DataFrame(data)
+        df = pd.DataFrame(data)
+        expected_cols = ["الكمية", "المنتج", "المنزل", "التاريخ", "الحالة"]
+        for col in expected_cols:
+            if col not in df.columns:
+                df[col] = ""
+        df = df[expected_cols]
+        df['الكمية'] = pd.to_numeric(df['الكمية'], errors='coerce').fillna(0)
+        return df
     return pd.DataFrame()
 
 def append_row(row):
@@ -62,11 +68,9 @@ def append_row(row):
 
 # 3. معالجة البيانات والواجهة
 try:
-    df = get_data()
-    if not df.empty:
-        df.columns = df.columns.str.strip()
-        if 'الكمية' in df.columns:
-            df['الكمية'] = pd.to_numeric(df['الكمية'], errors='coerce').fillna(0)
+    if "df" not in st.session_state:
+        st.session_state.df = get_data()
+    df = st.session_state.df
 
     # الهيدر العلوي
     col_t, col_ref = st.columns([4, 1])
@@ -74,6 +78,7 @@ try:
     with col_ref:
         if st.button("🔄 تحديث"):
             st.cache_resource.clear()
+            st.session_state.df = get_data()
             st.rerun()
 
     tabs = st.tabs(["🏠 استلام", "📤 إخراج", "🏢 المخزن", "💰 كشف حساب", "📜 History"])
@@ -94,9 +99,14 @@ try:
                             c1, c2 = st.columns([3, 1])
                             qty_in = c1.number_input(f"الكمية", min_value=0, key=f"in_{home}_{prod}")
                             if c2.button("تأكيد", key=f"btn_in_{home}_{prod}"):
-                                append_row([qty_in, prod, home, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "st"])
-                                st.cache_resource.clear()
-                                st.rerun()
+                                if qty_in > 0:
+                                    append_row([qty_in, prod, home, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "st"])
+                                    st.cache_resource.clear()
+                                    st.session_state.df = get_data()
+                                    st.success("✅ تمت العملية بنجاح")
+                                    st.rerun()
+                                else:
+                                    st.warning("⚠️ يرجى إدخال كمية صحيحة")
 
     # --- TAB 2: إخراج للمنزل ---
     with tabs[1]:
@@ -108,9 +118,14 @@ try:
             o_q = f3.number_input("الكمية", min_value=1)
             o_s = st.radio("الحالة", ["ct", "fn"], horizontal=True)
             if st.form_submit_button("تسجيل الخروج"):
-                append_row([o_q, o_p, o_h, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), o_s])
-                st.cache_resource.clear()
-                st.rerun()
+                if o_q > 0 and o_p.strip() and o_h.strip():
+                    append_row([o_q, o_p, o_h, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), o_s])
+                    st.cache_resource.clear()
+                    st.session_state.df = get_data()
+                    st.success("✅ تم تسجيل العملية بنجاح")
+                    st.rerun()
+                else:
+                    st.warning("⚠️ يرجى إدخال جميع البيانات بشكل صحيح")
 
     # --- TAB 3: المخزن النهائي ---
     with tabs[2]:
@@ -119,6 +134,8 @@ try:
             s_in = df[df['الحالة'] == 'st'].groupby('المنتج')['الكمية'].sum()
             s_out = df[df['الحالة'] == 'cl'].groupby('المنتج')['الكمية'].sum()
             stock = s_in.subtract(s_out, fill_value=0).reset_index()
+            total_stock = stock['الكمية'].sum()
+            st.metric("إجمالي الرصيد", f"{int(total_stock)} قطعة")
             for _, r in stock.iterrows():
                 if r['الكمية'] > 0:
                     st.info(f"📦 {r['المنتج']}: {int(r['الكمية'])} قطعة متوفرة")
@@ -132,42 +149,10 @@ try:
     with tabs[4]:
         st.subheader("📜 سجل المعاملات (History)")
         if not df.empty:
-            history_df = df.iloc[::-1].head(50) # عرض آخر 50 عملية
-            
-            # عناوين الجدول
-            h_cols = st.columns([1.5, 1.5, 1, 1, 2, 1])
-            headers = ["المنزل", "المنتج", "الحالة", "الكمية", "التاريخ", "التسوية"]
-            for col, text in zip(h_cols, headers): col.markdown(f"**{text}**")
-            
-            for i, row in history_df.iterrows():
-                # تلوين الأسطر بشكل متبادل
-                row_class = "history-row-even" if i % 2 == 0 else "history-row-odd"
-                
-                with st.container():
-                    st.markdown(f'<div class="{row_class}">', unsafe_allow_html=True)
-                    c1, c2, c3, c4, c5, c6 = st.columns([1.5, 1.5, 1, 1, 2, 1])
-                    
-                    c1.write(row['المنزل'])
-                    c2.write(row['المنتج'])
-                    c3.write(row['الحالة'])
-                    c4.write(str(int(row['الكمية'])))
-                    c5.write(row['التاريخ'])
-                    
-                    # زر التسوية التلقائية
-                    if row['الحالة'] in ['ct', 'fn'] and row['المنزل'] != "-":
-                        if c6.button("✅", key=f"hist_set_{i}"):
-                            # حساب المتبقي الفعلي للمنزل
-                            p_data = df[(df['المنزل'] == row['المنزل']) & (df['المنتج'] == row['المنتج'])]
-                            actual_rem = p_data[p_data['الحالة'].isin(['ct', 'fn'])]['الكمية'].sum() - p_data[p_data['الحالة'] == 'st']['الكمية'].sum()
-                            if actual_rem > 0:
-                                append_row([actual_rem, row['المنتج'], row['المنزل'], datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "st"])
-                                st.cache_resource.clear()
-                                st.success("تمت التسوية!")
-                                st.rerun()
-                    st.markdown('</div>', unsafe_allow_html=True)
+            history_df = df.iloc[::-1].head(50)
+            st.dataframe(history_df, use_container_width=True)
         else:
             st.info("السجل فارغ حالياً.")
 
 except Exception as e:
     st.error(f"حدث خطأ: {e}")
-                    
