@@ -52,9 +52,10 @@ df_karas = load_sheet("الكراس")
 
 if "operations" not in st.session_state:
     st.session_state.operations = []
-
 if "errors" not in st.session_state:
     st.session_state.errors = []
+if "livraisons" not in st.session_state:
+    st.session_state.livraisons = []
 
 def get_df_ops():
     if st.session_state.operations:
@@ -63,7 +64,7 @@ def get_df_ops():
 
 produits = df_karas["Référence"].dropna().tolist()
 
-tab1, tab2, tab3, tab4 = st.tabs(["📤 إخراج", "📥 استلام", "🏪 المخزن", "❌ الأخطاء"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["📤 إخراج", "📥 استلام", "🏪 المخزن", "❌ الأخطاء", "📦 No Livraison"])
 
 # ── إخراج
 with tab1:
@@ -92,6 +93,13 @@ with tab1:
             "الكمية": quantite_out,
             "السجل": f"إخراج... {sijil_out}"
         })
+        # ننقص من No Livraison تلقائياً
+        for liv in st.session_state.livraisons:
+            if liv["المنتج"] == produit_out and liv["الحالة"] == "نشط":
+                liv["في الإنتاج"] = min(
+                    liv["في الإنتاج"] + quantite_out,
+                    liv["الكمية المطلوبة"]
+                )
         st.success(f"✅ تم الإخراج: {sijil_out}")
 
 # ── استلام
@@ -183,18 +191,61 @@ with tab3:
 # ── الأخطاء
 with tab4:
     st.markdown("### ❌ سجل الأخطاء (الناقص فقط)")
-
     if st.session_state.errors:
         df_errors = pd.DataFrame(st.session_state.errors)
         st.dataframe(df_errors, use_container_width=True)
-
         st.divider()
         st.markdown("#### 📊 إجمالي الناقص لكل منزل")
         df_total = df_errors.groupby(["المنزل","المنتج","الصنف"])["الناقص"].sum().reset_index()
         df_total.columns = ["المنزل", "المنتج", "الصنف", "إجمالي الناقص"]
         st.dataframe(df_total, use_container_width=True)
-
         csv_err = df_errors.to_csv(index=False).encode("utf-8-sig")
         st.download_button("⬇️ تحميل الأخطاء CSV", csv_err, "الأخطاء.csv", "text/csv")
     else:
         st.success("✅ لا توجد أخطاء حتى الآن!")
+
+# ── No Livraison
+with tab5:
+    st.markdown("### 📦 No Livraison — الطلبيات المنتظرة")
+
+    # إضافة طلبية جديدة
+    st.markdown("#### ➕ إضافة طلبية")
+    col1, col2 = st.columns(2)
+    with col1:
+        liv_prod = st.selectbox("المنتج", produits, key="liv_prod")
+    with col2:
+        liv_qty = st.number_input("الكمية المطلوبة", min_value=1, step=1, key="liv_qty")
+
+    if st.button("➕ إضافة الطلبية", use_container_width=True):
+        st.session_state.livraisons.append({
+            "المنتج": liv_prod,
+            "الكمية المطلوبة": liv_qty,
+            "في الإنتاج": 0,
+            "الحالة": "نشط"
+        })
+        st.success(f"✅ تمت إضافة طلبية {liv_prod} / {liv_qty}")
+
+    st.divider()
+
+    # عرض الطلبيات النشطة
+    livraisons_actives = [
+        (i, l) for i, l in enumerate(st.session_state.livraisons)
+        if l["الحالة"] == "نشط"
+    ]
+
+    if livraisons_actives:
+        st.markdown("#### 📋 الطلبيات النشطة")
+        for i, liv in livraisons_actives:
+            col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+            with col1:
+                st.write(f"**{liv['المنتج']}**")
+            with col2:
+                st.write(f"مطلوب: {liv['الكمية المطلوبة']}")
+            with col3:
+                st.write(f"إنتاج: {liv['في الإنتاج']}")
+            with col4:
+                if st.button("🗑️ إلغاء", key=f"cancel_{i}"):
+                    st.session_state.livraisons[i]["الحالة"] = "ملغى"
+                    st.rerun()
+    else:
+        st.info("لا توجد طلبيات منتظرة.")
