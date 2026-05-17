@@ -6,12 +6,8 @@ st.set_page_config(page_title="نظام إدارة الورشة - Bébé Sympa",
 
 # تأكد من أن الرابط الخاص بك مضاف في ملف .streamlit/secrets.toml باسم public_gsheets_url
 # أو يمكنك استبدال st.secrets["public_gsheets_url"] برابط جدول البيانات الخاص بك مباشرة بين علامتي تنصيص.
-try:
-    SHEET_URL = st.secrets["public_gsheets_url"]
-except Exception:
-    # رابط احتياطي في حال لم تكن قد أعددت الـ secrets بعد (ضع رابطك هنا إذا أردت)
-    SHEET_URL = "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit?usp=sharing"
-
+# ضع رابط ملف الـ Google Sheets الخاص بك مباشرة بين علامتي التنصيص هنا:
+SHEET_URL = "https://docs.google.com/spreadsheets/d/ضع_هنا_الرقم_الخاص_بملفك/edit?usp=sharing"
 # 2. دالة جلب البيانات من Google Sheets وتحويلها إلى لوحة بيانات (Pandas DataFrame)
 @st.cache_data(ttl=300)  # تحديث البيانات تلقائيًا كل 5 دقائق
 def get_sheet_data(sheet_name):
