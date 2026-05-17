@@ -157,10 +157,13 @@ with tab3:
 
     df_ops = get_df_ops()
     if not df_ops.empty:
-        df_out = df_ops[df_ops["النوع"] == "إخراج"].groupby(["المنزل","المنتج","الصنف"])["الكمية"].sum()
-        df_in  = df_ops[df_ops["النوع"] == "استلام"].groupby(["المنزل","المنتج","الصنف"])["الكمية"].sum()
-        df_balance = (df_out - df_in).fillna(df_out).reset_index()
-        df_balance.columns = ["المنزل", "المنتج", "الصنف", "الرصيد المتبقي"]
+        df_out = df_ops[df_ops["النوع"] == "إخراج"].groupby(["المنزل","المنتج","الصنف"])["الكمية"].sum().reset_index()
+        df_out.columns = ["المنزل","المنتج","الصنف","المُخرَج"]
+        df_in = df_ops[df_ops["النوع"] == "استلام"].groupby(["المنزل","المنتج","الصنف"])["الكمية"].sum().reset_index()
+        df_in.columns = ["المنزل","المنتج","الصنف","المُستلَم"]
+        df_balance = df_out.merge(df_in, on=["المنزل","المنتج","الصنف"], how="left")
+        df_balance["المُستلَم"] = df_balance["المُستلَم"].fillna(0).astype(int)
+        df_balance["الرصيد المتبقي"] = df_balance["المُخرَج"] - df_balance["المُستلَم"]
 
         if search_منزل:
             df_balance = df_balance[df_balance["المنزل"].str.contains(search_منزل, na=False)]
@@ -169,4 +172,29 @@ with tab3:
 
         st.dataframe(df_balance, use_container_width=True)
         st.divider()
-        st.markdown("####
+        st.markdown("#### 📜 كل السجلات")
+        st.dataframe(df_ops[["التاريخ","النوع","المنزل","المنتج","الصنف","الكمية","السجل"]], use_container_width=True)
+
+        csv = df_ops.to_csv(index=False).encode("utf-8-sig")
+        st.download_button("⬇️ تحميل CSV", csv, "سجل_العمليات.csv", "text/csv")
+    else:
+        st.info("المخزن فارغ — سجّل أول عملية.")
+
+# ── الأخطاء
+with tab4:
+    st.markdown("### ❌ سجل الأخطاء (الناقص فقط)")
+
+    if st.session_state.errors:
+        df_errors = pd.DataFrame(st.session_state.errors)
+        st.dataframe(df_errors, use_container_width=True)
+
+        st.divider()
+        st.markdown("#### 📊 إجمالي الناقص لكل منزل")
+        df_total = df_errors.groupby(["المنزل","المنتج","الصنف"])["الناقص"].sum().reset_index()
+        df_total.columns = ["المنزل", "المنتج", "الصنف", "إجمالي الناقص"]
+        st.dataframe(df_total, use_container_width=True)
+
+        csv_err = df_errors.to_csv(index=False).encode("utf-8-sig")
+        st.download_button("⬇️ تحميل الأخطاء CSV", csv_err, "الأخطاء.csv", "text/csv")
+    else:
+        st.success("✅ لا توجد أخطاء حتى الآن!")
