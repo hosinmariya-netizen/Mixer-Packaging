@@ -1,30 +1,30 @@
 import streamlit as st
 import pandas as pd
+import requests
+from io import StringIO
+from urllib.parse import quote
 
 st.set_page_config(page_title="نظام إدارة الورشة - Bébé Sympa", page_icon="🏗️", layout="centered")
-
 st.markdown("<h2>🏗️ لوحة تحكم ورشة Bébé Sympa</h2>", unsafe_allow_html=True)
-st.write("مرحباً بك! يتم الآن جلب بيانات الورشة الحالية:")
 
 sheet_id = "1JZUGpM6RBYDiLfX1Z5qKH5C6E2pfaRHF6dCDWmGXTso"
 
-# ── الورقة الأولى (السلع / المراجع)
-st.markdown("### 📦 جدول السلع والمخزون الحالي")
-url1 = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid=0"
-try:
-    df1 = pd.read_csv(url1)
-    st.dataframe(df1, use_container_width=True)
-    st.info(f"إجمالي عدد الأصناف: {len(df1)} صنف.")
-except Exception as e:
-    st.error(f"خطأ: {e}")
+sheets = [
+    ("السلع", "📦"),
+    ("الكراس", "📋"),
+]
 
-st.divider()
-
-# ── الورقة الثانية (History / التاريخ)
-st.markdown("### 📋 سجل الإدخال والإخراج")
-url2 = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid=1"
-try:
-    df2 = pd.read_csv(url2)
-    st.dataframe(df2, use_container_width=True)
-except Exception as e:
-    st.error(f"خطأ: {e}")
+for name, icon in sheets:
+    st.markdown(f"### {icon} {name}")
+    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={quote(name)}"
+    try:
+        r = requests.get(url, timeout=10)
+        if r.status_code == 200:
+            df = pd.read_csv(StringIO(r.text))
+            st.dataframe(df, use_container_width=True)
+            st.info(f"عدد السجلات: {len(df)}")
+        else:
+            st.error(f"خطأ {r.status_code}")
+    except Exception as e:
+        st.error(f"خطأ: {e}")
+    st.divider()
