@@ -4,12 +4,11 @@ import pandas as pd
 # 1. إعدادات الصفحة والعناوين
 st.set_page_config(page_title="نظام إدارة الورشة - Bébé Sympa", page_icon="🏗️", layout="centered")
 
-# تأكد من أن الرابط الخاص بك مضاف في ملف .streamlit/secrets.toml باسم public_gsheets_url
-# أو يمكنك استبدال st.secrets["public_gsheets_url"] برابط جدول البيانات الخاص بك مباشرة بين علامتي تنصيص.
-# ضع رابط ملف الـ Google Sheets الخاص بك مباشرة بين علامتي التنصيص هنا:
-SHEET_URL = "https://docs.google.com/spreadsheets/d/ضع_هنا_الرقم_الخاص_بملفك/edit?usp=sharing"
-# 2. دالة جلب البيانات من Google Sheets وتحويلها إلى لوحة بيانات (Pandas DataFrame)
-@st.cache_data(ttl=300)  # تحديث البيانات تلقائيًا كل 5 دقائق
+# 🚨 امسح الرابط التجريبي أدناه وضع رابط ملف الـ Google Sheets الخاص بك بالكامل بين علامتي التنصيص:
+SHEET_URL = "https://docs.google.com/spreadsheets/d/ضع_رابط_ملفك_هنا/edit?usp=sharing"
+
+# 2. دالة جلب البيانات من Google Sheets
+@st.cache_data(ttl=60)  # تحديث البيانات تلقائيًا كل دقيقة
 def get_sheet_data(sheet_name):
     # تحويل الرابط العادي لرابط تصدير CSV متوافق مع اسم الورقة المطلوبة بدقة
     base_url = SHEET_URL.split("/edit")[0]
@@ -54,12 +53,14 @@ if not st.session_state.logged_in:
                         st.session_state.logged_in = True
                         st.session_state.username = username_input.strip()
                         st.success(f"مرحباً بك يا {username_input}! تم الدخول بنجاح.")
-                        st.rerun()  # إعادة تحميل التطبيق لفتح النظام للـمستخدم
+                        st.rerun()  # إعادة تحميل التطبيق لفتح النظام للمستخدم
                     else:
                         st.error("❌ اسم الحساب أو كلمة السر غير صحيحة، يرجى المحاولة مرة أخرى.")
                 except Exception as e:
                     st.error("⚠️ تعذر الاتصال بجدول البيانات للتأكد من الحساب.")
-                    st.info("تأكد من أن خيار المشاركة في Google Sheets مضبوط على 'أي شخص لديه الرابط يمكنه العرض'.")
+                    st.info("تأكد من خطوتين:")
+                    st.markdown("1. أنك وضعت رابط ملفك الصحيح في السطر رقم 9 داخل الكود.")
+                    st.markdown("2. أن خيار المشاركة (Share) في ملف الـ Google Sheets مضبوط على **'أي شخص لديه الرابط يمكنه العرض' (Anyone with the link can view)**.")
 
 # --- ثانياً: شاشة النظام الرئيسية (تظهر بعد تسجيل الدخول بنجاح فقط) ---
 else:
@@ -83,9 +84,9 @@ else:
             # عرض جدول السلع بشكل منسق وجذاب
             st.dataframe(df_goods, use_container_width=True)
             
-            # يمكنك إضافة أزرار إحصائية بسيطة هنا بناءً على السلع المتاحة لديك
+            # إحصائية بسيطة
             st.info(f"إجمالي عدد المواد والسلع المسجلة حالياً: {len(df_goods)} صنف.")
             
         except Exception as e:
-            st.error("حدث خطأ أثناء تحميل ورقة السلع. تأكد من أن اسم الورقة هو 'السلع' بالضبط.")
-    
+            st.error("حدث خطأ أثناء تحميل ورقة السلع. تأكد من أن اسم الورقة في الملف هو 'السلع' بالضبط.")
+            
