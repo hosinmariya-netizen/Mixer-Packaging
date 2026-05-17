@@ -5,8 +5,34 @@ from io import StringIO
 from urllib.parse import quote
 from datetime import datetime
 
-st.set_page_config(page_title="ورشة Bébé Sympa", page_icon="🏗️", layout="centered")
-st.markdown("<h2>🏗️ لوحة تحكم ورشة Bébé Sympa</h2>", unsafe_allow_html=True)
+st.set_page_config(page_title="Baby Sympa", page_icon="🧸", layout="centered")
+
+# ── خلفية الصورة
+st.markdown("""
+<style>
+[data-testid="stAppViewContainer"] {
+    background-image: url("https://raw.githubusercontent.com/hosinmariya-/mixer-packaging/main/images%20(5)%20(5).jpeg");
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+}
+[data-testid="stAppViewContainer"]::before {
+    content: "";
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.83);
+    z-index: 0;
+}
+[data-testid="stMain"] > div {
+    position: relative;
+    z-index: 1;
+}
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("<h1 style='text-align:center'>🧸 Baby Sympa</h1>", unsafe_allow_html=True)
+st.markdown("<h4 style='text-align:center; color:#ccc'>لوحة تحكم ورشة الخياطة</h4>", unsafe_allow_html=True)
 
 sheet_id = "1JZUGpM6RBYDiLfX1Z5qKH5C6E2pfaRHF6dCDWmGXTso"
 
@@ -37,6 +63,7 @@ produits = df_karas["Référence"].dropna().tolist()
 
 tab1, tab2, tab3 = st.tabs(["📤 إخراج", "📥 استلام", "🏪 المخزن"])
 
+# ── إخراج
 with tab1:
     st.markdown("### 📤 إخراج إلى المنزل")
     col1, col2 = st.columns(2)
@@ -65,6 +92,7 @@ with tab1:
         })
         st.success(f"✅ تم الإخراج: {sijil_out}")
 
+# ── استلام
 with tab2:
     st.markdown("### 📥 استلام من المنزل")
     col1, col2 = st.columns(2)
@@ -81,43 +109,19 @@ with tab2:
     sijil_in = f"{nom_in} / {produit_in}/{type_in}/{quantite_in}"
     st.info(f"📝 استلام... {sijil_in}")
 
-    df_ops = get_df_ops()
-    if not df_ops.empty:
-        df_منزل = df_ops[
-            (df_ops["المنزل"] == nom_in) &
-            (df_ops["المنتج"] == produit_in) &
-            (df_ops["الصنف"] == type_in)
-        ]
-        اخراج = df_منزل[df_منزل["النوع"] == "إخراج"]["الكمية"].sum()
-        استلام = df_منزل[df_منزل["النوع"] == "استلام"]["الكمية"].sum()
-        رصيد = اخراج - استلام
-        st.warning(f"⚖️ الرصيد عند {nom_in} من {produit_in}/{type_in}: **{رصيد} قطعة**")
-
     if st.button("✅ تأكيد الاستلام", use_container_width=True):
-        df_ops = get_df_ops()
-        df_منزل = df_ops[
-            (df_ops["المنزل"] == nom_in) &
-            (df_ops["المنتج"] == produit_in) &
-            (df_ops["الصنف"] == type_in)
-        ]
-        اخراج = df_منزل[df_منزل["النوع"] == "إخراج"]["الكمية"].sum()
-        استلام_سابق = df_منزل[df_منزل["النوع"] == "استلام"]["الكمية"].sum()
-        رصيد = اخراج - استلام_سابق
+        st.session_state.operations.append({
+            "التاريخ": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "النوع": "استلام",
+            "المنزل": nom_in,
+            "المنتج": produit_in,
+            "الصنف": type_in,
+            "الكمية": quantite_in,
+            "السجل": f"استلام... {sijil_in}"
+        })
+        st.success(f"✅ تم الاستلام: {sijil_in}")
 
-        if quantite_in > رصيد:
-            st.error(f"❌ الكمية ({quantite_in}) أكبر من الرصيد ({رصيد})")
-        else:
-            st.session_state.operations.append({
-                "التاريخ": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "النوع": "استلام",
-                "المنزل": nom_in,
-                "المنتج": produit_in,
-                "الصنف": type_in,
-                "الكمية": quantite_in,
-                "السجل": f"استلام... {sijil_in}"
-            })
-            st.success(f"✅ تم الاستلام: {sijil_in}")
-
+# ── المخزن
 with tab3:
     st.markdown("### 🏪 المخزن والبحث")
     col_s1, col_s2 = st.columns(2)
