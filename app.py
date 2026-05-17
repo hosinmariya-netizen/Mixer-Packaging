@@ -1,80 +1,81 @@
 import streamlit as st
+from gsheetsdb import connect
 import pandas as pd
-from datetime import datetime
 
-# إعدادات الصفحة
-st.set_page_config(page_title="Mixer Packaging", page_icon="📦", layout="wide")
+# إعداد الاتصال بـ Google Sheets (تأكد من أن الرابط يحتوي على صلاحية الوصول)
+# استبدل هذا الرابط برابط الـ Spreadsheet الخاص بك إذا لزم الأمر
+sheet_url = st.secrets["public_gsheets_url"]
 
-# 1. التحقق من الأسرار (Secrets) لتأمين الموقع
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
+# دالة لجلب بيانات الحسابات من الورقة المحددة
+@st.cache_data(ttl=600)  # تحديث البيانات كل 10 دقائق
+def load_accounts_data():
+    # هنا نقوم بطلب ورقة "كلمات سر وحسابات" محددة
+    # ملحوظة: تأكد من صياغة الاستعلام لجلب الورقة الصحيحة، أو استخدام pandas لقراءتها عبر الرابط المخفي للورقة
+    # الطريقة الأسهل مع المقارنة المباشرة:
+    query = f'SELECT * FROM "{sheet_url}"'
+    # إذا كنت تستخدم مكتبة st.connection الحديثة في Streamlit (وهي الأسهل):
+    # conn = st.connection("gsheets", type=GSheetsConnection)
+    # df = conn.read(worksheet="كلمات سر وحسابات")
+    
+    # سنفترض هنا استخدام الرابط المباشر لورقة "كلمات سر وحسابات" عبر الباندا لضمان الدقة:
+    # نقوم بتحويل الرابط العادي لرابط تصدير CSV مع اسم الورقة
+    csv_url = sheet_url.replace("/edit?usp=sharing", "/gviz/tq?tqx=out:csv&sheet=كلمات%20سر%20وحسابات")
+    csv_url = csv_url.replace("/edit#gid=", "/gviz/tq?tqx=out:csv&sheet=كلمات%20سر%20وحسابات")
+    df = pd.read_csv(csv_url)
+    return df
 
-# سنقوم بقراءة كلمة المرور من الـ Secrets الخاصة بـ Streamlit
-# إذا لم تكن الأسرار مهيأة بعد، سنضع كلمة مرور افتراضية للمعاينة المحلية فقط
+# تحميل جدول الحسابات
 try:
-    correct_password = st.secrets["auth"]["password"]
-except:
-    correct_password = "admin" # كلمة مرور مؤقتة للمحلي
+    df_accounts = load_accounts_data()
+except Exception as e:
+    st.error("حدث خطأ أثناء الاتصال بجدول الحسابات، تأكد من اسم الورقة والرابط.")
+    df_accounts = pd.DataFrame()
 
-st.sidebar.title("🔑 تسجيل الدخول")
-password_input = st.sidebar.text_input("أدخل كلمة المرور:", type="password")
+# إدارة حالة تسجيل الدخول باستخدام Session State في Streamlit
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+if "username" not in st.session_state:
+    st.session_state.username = ""
 
-if password_input == correct_password:
-    st.session_state.authenticated = True
-    st.sidebar.success("تم التحقق بنجاح ✅")
-else:
-    if password_input:
-        st.sidebar.error("كلمة المرور غير صحيحة ❌")
-
-# 2. عرض التطبيق بعد تسجيل الدخول الناجح
-if st.session_state.authenticated:
-    st.title("📦 نظام إدارة التعبئة والمخزن (Mixer-Packaging)")
+# --- شاشة تسجيل الدخول ---
+if not st.session_state.logged_in:
+    st.title("🔐 تسجيل الدخول - نظام إدارة الورشة")
     
-    # تقسيم الواجهة إلى علامات تبويب (Tabs) بناءً على جداولك المرفقة
-    tab1, tab2 = st.tabs(["📋 جدول المنازل والحسابات", "🔢 مراجع الـ FN"])
+    username_input = st.text_input("اسم الحساب:")
+    password_input = st.text_input("كلمة السر:", type="password")
     
-    with tab1:
-        st.header("إدارة بيانات المنازل")
-        
-        # قائمة الأسماء المأخوذة من ملفك
-        names_list = [
-            "بباز عيسى", "قمغار محمد", "قبايلي خضير", "نعلوفي عيسى", 
-            "لالوة محمد", "بيايا توفيق", "أداود يحيى", "أداود عبد الرحمان",
-            "أداود عمر", "بضليس فارس", "بضليس يوسف", "كيوكيو محمد",
-            "سيوسيو نور الدين", "حجاج رستم", "باباحني يوسف", "باباحني خضير"
-        ]
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            selected_name = st.selectbox("اختر اسم المنزل / الزبون:", names_list)
-            store_place = st.text_input("المخزن:", placeholder="أدخل اسم المخزن")
-            delivery_no = st.text_input("رقم التوصيل (No Livrai):")
+    if st.button("دخول"):
+        if not df_accounts.empty:
+            # التحقق من وجود الحساب وكلمة السر في الأعمدة "الحساب" و "كلمة السر"
+            # نقوم بتحويل المدخلات لنصوص والتأكد من مطابقتها تماماً لما في الصورة
+            match = df_accounts[(df_accounts['الحساب'].astype(str) == username_input) & 
+                                (df_accounts['كلمة السر'].astype(str) == str(password_input))]
             
-        with col2:
-            input_qty = st.number_input("الكمية المدخلة (إدخال):", min_value=0, step=1)
-            output_qty = st.number_input("الكمية المخرجة (إخراج):", min_value=0, step=1)
-            current_date = st.date_input("التاريخ:", datetime.now())
-            history_notes = st.text_area("السجل (History):", placeholder="ملاحظات السجل...")
+            if not match.empty:
+                st.session_state.logged_in = True
+                st.session_state.username = username_input
+                st.success(f"مرحباً بك يا {username_input}، تم تسجيل الدخول بنجاح!")
+                st.rerun() # إعادة تحميل الصفحة لعرض النظام
+            else:
+                st.error("اسم الحساب أو كلمة السر غير صحيحة.")
+        else:
+            st.error("تعذر التحقق من الحسابات حالياً.")
 
-        if st.button("💾 حفظ وتحديث البيانات"):
-            st.success(f"تمت محاكاة تسجيل البيانات بنجاح لـ: {selected_name}")
-            # هنا مستقبلاً يمكنك ربط هذا الزر بحفظ حقيقي داخل Google Sheets أو قاعدة بيانات
-            
-    with tab2:
-        st.header("مراجع الـ FN والـ CT")
-        # توليد جدول مراجع من Bv1 إلى Bv9 تلقائياً بناءً على ورقتك الأولى
-        references = [f"Bv{i}" for i in range(1, 10)]
-        fn_data = pd.DataFrame({
-            "Référence FN": references,
-            "CT": [""] * len(references) # حقول فارغة للتعبئة
-        })
-        
-        # عرض الجدول بشكل تفاعلي يسمح للمستخدم بتعديله داخل الموقع
-        edited_df = st.data_editor(fn_data, num_rows="dynamic", use_container_width=True)
-        
-        if st.button("📊 حفظ التعديلات على المراجع"):
-            st.success("تم تحديث جدول المراجع تفاعلياً!")
-
+# --- محتوى الموقع الرئيسي (يظهر فقط بعد تسجيل الدخول بنجاح) ---
 else:
-    st.info("🔒 الرجاء إدخال كلمة المرور في الشريط الجانبي للوصول إلى لوحة التحكم والبيانات.")
+    # شريط علوي يظهر اسم المستخدم وزر تسجيل الخروج
+    st.sidebar.write(f"👤 المستخدم الحالي: **{st.session_state.username}**")
+    if st.sidebar.button("تسجيل الخروج"):
+        st.session_state.logged_in = False
+        st.session_state.username = ""
+        st.rerun()
+
+    st.title("🏗️ لوحة تحكم ورقة السلع والعمل")
+    st.write("مرحباً بك في النظام. يمكنك الآن تصفح ورقة 'السلع' وإدارتها.")
+    
+    # --- كود جلب ورقة "السلع" القديم الخاص بك يوضع هنا ---
+    # مثال:
+    # csv_goods_url = sheet_url.replace("/edit?usp=sharing", "/gviz/tq?tqx=out:csv&sheet=السلع")
+    # df_goods = pd.read_csv(csv_goods_url)
+    # st.dataframe(df_goods)
     
