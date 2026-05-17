@@ -53,6 +53,9 @@ df_karas = load_sheet("الكراس")
 if "operations" not in st.session_state:
     st.session_state.operations = []
 
+if "errors" not in st.session_state:
+    st.session_state.errors = []
+
 def get_df_ops():
     if st.session_state.operations:
         return pd.DataFrame(st.session_state.operations)
@@ -110,8 +113,6 @@ with tab2:
 
     if st.button("✅ تأكيد الاستلام", use_container_width=True):
         df_ops = get_df_ops()
-
-        # حساب الناقص عند الاستلام
         df_منزل = df_ops[
             (df_ops["المنزل"] == nom_in) &
             (df_ops["المنتج"] == produit_in) &
@@ -131,10 +132,7 @@ with tab2:
             "السجل": f"استلام... {sijil_in}"
         })
 
-        # إذا كان هناك ناقص → سجّله في الأخطاء
         if ناقص > 0:
-            if "errors" not in st.session_state:
-                st.session_state.errors = []
             st.session_state.errors.append({
                 "التاريخ": datetime.now().strftime("%Y-%m-%d %H:%M"),
                 "المنزل": nom_in,
@@ -171,33 +169,4 @@ with tab3:
 
         st.dataframe(df_balance, use_container_width=True)
         st.divider()
-        st.markdown("#### 📜 كل السجلات")
-        st.dataframe(df_ops[["التاريخ","النوع","السجل"]], use_container_width=True)
-
-        csv = df_ops.to_csv(index=False).encode("utf-8-sig")
-        st.download_button("⬇️ تحميل CSV", csv, "سجل_العمليات.csv", "text/csv")
-    else:
-        st.info("المخزن فارغ — سجّل أول عملية.")
-
-# ── الأخطاء
-with tab4:
-    st.markdown("### ❌ سجل الأخطاء (الناقص فقط)")
-
-    if "errors" not in st.session_state:
-        st.session_state.errors = []
-
-    if st.session_state.errors:
-        df_errors = pd.DataFrame(st.session_state.errors)
-        st.dataframe(df_errors, use_container_width=True)
-
-        # إجمالي الناقص لكل منزل
-        st.divider()
-        st.markdown("#### 📊 إجمالي الناقص لكل منزل")
-        df_total = df_errors.groupby(["المنزل","المنتج","الصنف"])["الناقص"].sum().reset_index()
-        df_total.columns = ["المنزل", "المنتج", "الصنف", "إجمالي الناقص"]
-        st.dataframe(df_total, use_container_width=True)
-
-        csv_err = df_errors.to_csv(index=False).encode("utf-8-sig")
-        st.download_button("⬇️ تحميل الأخطاء CSV", csv_err, "الأخطاء.csv", "text/csv")
-    else:
-        st.success("✅ لا توجد أخطاء حتى الآن!")
+        st.markdown("####
