@@ -7,7 +7,6 @@ from datetime import datetime
 
 st.set_page_config(page_title="Baby Sympa", page_icon="🧸", layout="centered")
 
-# ── خلفية الصورة
 st.markdown("""
 <style>
 [data-testid="stAppViewContainer"] {
@@ -61,7 +60,7 @@ def get_df_ops():
 
 produits = df_karas["Référence"].dropna().tolist()
 
-tab1, tab2, tab3 = st.tabs(["📤 إخراج", "📥 استلام", "🏪 المخزن"])
+tab1, tab2, tab3, tab4 = st.tabs(["📤 إخراج", "📥 استلام", "🏪 المخزن", "❌ الأخطاء"])
 
 # ── إخراج
 with tab1:
@@ -110,6 +109,18 @@ with tab2:
     st.info(f"📝 استلام... {sijil_in}")
 
     if st.button("✅ تأكيد الاستلام", use_container_width=True):
+        df_ops = get_df_ops()
+
+        # حساب الناقص عند الاستلام
+        df_منزل = df_ops[
+            (df_ops["المنزل"] == nom_in) &
+            (df_ops["المنتج"] == produit_in) &
+            (df_ops["الصنف"] == type_in)
+        ]
+        اخراج = df_منزل[df_منزل["النوع"] == "إخراج"]["الكمية"].sum()
+        استلام_سابق = df_منزل[df_منزل["النوع"] == "استلام"]["الكمية"].sum()
+        ناقص = اخراج - استلام_سابق - quantite_in
+
         st.session_state.operations.append({
             "التاريخ": datetime.now().strftime("%Y-%m-%d %H:%M"),
             "النوع": "استلام",
@@ -119,7 +130,23 @@ with tab2:
             "الكمية": quantite_in,
             "السجل": f"استلام... {sijil_in}"
         })
-        st.success(f"✅ تم الاستلام: {sijil_in}")
+
+        # إذا كان هناك ناقص → سجّله في الأخطاء
+        if ناقص > 0:
+            if "errors" not in st.session_state:
+                st.session_state.errors = []
+            st.session_state.errors.append({
+                "التاريخ": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "المنزل": nom_in,
+                "المنتج": produit_in,
+                "الصنف": type_in,
+                "المُخرَج": int(اخراج - استلام_سابق),
+                "المُستلَم": quantite_in,
+                "الناقص": int(ناقص)
+            })
+            st.warning(f"⚠️ تم الاستلام لكن هناك ناقص: {int(ناقص)} قطعة")
+        else:
+            st.success(f"✅ تم الاستلام: {sijil_in}")
 
 # ── المخزن
 with tab3:
@@ -151,3 +178,26 @@ with tab3:
         st.download_button("⬇️ تحميل CSV", csv, "سجل_العمليات.csv", "text/csv")
     else:
         st.info("المخزن فارغ — سجّل أول عملية.")
+
+# ── الأخطاء
+with tab4:
+    st.markdown("### ❌ سجل الأخطاء (الناقص فقط)")
+
+    if "errors" not in st.session_state:
+        st.session_state.errors = []
+
+    if st.session_state.errors:
+        df_errors = pd.DataFrame(st.session_state.errors)
+        st.dataframe(df_errors, use_container_width=True)
+
+        # إجمالي الناقص لكل منزل
+        st.divider()
+        st.markdown("#### 📊 إجمالي الناقص لكل منزل")
+        df_total = df_errors.groupby(["المنزل","المنتج","الصنف"])["الناقص"].sum().reset_index()
+        df_total.columns = ["المنزل", "المنتج", "الصنف", "إجمالي الناقص"]
+        st.dataframe(df_total, use_container_width=True)
+
+        csv_err = df_errors.to_csv(index=False).encode("utf-8-sig")
+        st.download_button("⬇️ تحميل الأخطاء CSV", csv_err, "الأخطاء.csv", "text/csv")
+    else:
+        st.success("✅ لا توجد أخطاء حتى الآن!")
