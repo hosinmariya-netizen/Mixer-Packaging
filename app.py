@@ -28,25 +28,22 @@ df_karas = load_sheet("الكراس")
 if "operations" not in st.session_state:
     st.session_state.operations = []
 
+def get_df_ops():
+    if st.session_state.operations:
+        return pd.DataFrame(st.session_state.operations)
+    return pd.DataFrame(columns=["التاريخ","النوع","المنزل","المنتج","الصنف","الكمية","السجل"])
+
 produits = df_karas["Référence"].dropna().tolist()
 
-# ══════════════════════════════════
-# تبويبات رئيسية
-# ══════════════════════════════════
 tab1, tab2, tab3 = st.tabs(["📤 إخراج", "📥 استلام", "🏪 المخزن"])
 
-# ══════════════════════════════════
-# تبويب الإخراج
-# ══════════════════════════════════
 with tab1:
     st.markdown("### 📤 إخراج إلى المنزل")
-
     col1, col2 = st.columns(2)
     with col1:
         produit_out = st.selectbox("المنتج", produits, key="out_prod")
     with col2:
         quantite_out = st.number_input("الكمية", min_value=1, step=1, key="out_qty")
-
     col3, col4 = st.columns(2)
     with col3:
         type_out = st.selectbox("النوع", ["FN", "CT"], key="out_type")
@@ -68,18 +65,13 @@ with tab1:
         })
         st.success(f"✅ تم الإخراج: {sijil_out}")
 
-# ══════════════════════════════════
-# تبويب الاستلام
-# ══════════════════════════════════
 with tab2:
     st.markdown("### 📥 استلام من المنزل")
-
     col1, col2 = st.columns(2)
     with col1:
         produit_in = st.selectbox("المنتج", produits, key="in_prod")
     with col2:
         quantite_in = st.number_input("الكمية", min_value=1, step=1, key="in_qty")
-
     col3, col4 = st.columns(2)
     with col3:
         type_in = st.selectbox("النوع", ["FN", "CT"], key="in_type")
@@ -89,9 +81,8 @@ with tab2:
     sijil_in = f"{nom_in} / {produit_in}/{type_in}/{quantite_in}"
     st.info(f"📝 استلام... {sijil_in}")
 
-    # حساب الرصيد المتبقي عند هذا المنزل
-    if st.session_state.operations:
-        df_ops = pd.DataFrame(st.session_state.operations)
+    df_ops = get_df_ops()
+    if not df_ops.empty:
         df_منزل = df_ops[
             (df_ops["المنزل"] == nom_in) &
             (df_ops["المنتج"] == produit_in) &
@@ -103,62 +94,51 @@ with tab2:
         st.warning(f"⚖️ الرصيد عند {nom_in} من {produit_in}/{type_in}: **{رصيد} قطعة**")
 
     if st.button("✅ تأكيد الاستلام", use_container_width=True):
-        if st.session_state.operations:
-            df_ops = pd.DataFrame(st.session_state.operations)
-            df_منزل = df_ops[
-                (df_ops["المنزل"] == nom_in) &
-                (df_ops["المنتج"] == produit_in) &
-                (df_ops["الصنف"] == type_in)
-            ]
-            اخراج = df_منزل[df_منزل["النوع"] == "إخراج"]["الكمية"].sum()
-            استلام_سابق = df_منزل[df_منزل["النوع"] == "استلام"]["الكمية"].sum()
-            رصيد = اخراج - استلام_سابق
+        df_ops = get_df_ops()
+        df_منزل = df_ops[
+            (df_ops["المنزل"] == nom_in) &
+            (df_ops["المنتج"] == produit_in) &
+            (df_ops["الصنف"] == type_in)
+        ]
+        اخراج = df_منزل[df_منزل["النوع"] == "إخراج"]["الكمية"].sum()
+        استلام_سابق = df_منزل[df_منزل["النوع"] == "استلام"]["الكمية"].sum()
+        رصيد = اخراج - استلام_سابق
 
-            if quantite_in > رصيد:
-                st.error(f"❌ الكمية المطلوبة ({quantite_in}) أكبر من الرصيد ({رصيد})")
-            else:
-                st.session_state.operations.append({
-                    "التاريخ": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                    "النوع": "استلام",
-                    "المنزل": nom_in,
-                    "المنتج": produit_in,
-                    "الصنف": type_in,
-                    "الكمية": quantite_in,
-                    "السجل": f"استلام... {sijil_in}"
-                })
-                st.success(f"✅ تم الاستلام: {sijil_in}")
+        if quantite_in > رصيد:
+            st.error(f"❌ الكمية ({quantite_in}) أكبر من الرصيد ({رصيد})")
         else:
-            st.error("❌ لا يوجد إخراج مسبق لهذا المنزل")
+            st.session_state.operations.append({
+                "التاريخ": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "النوع": "استلام",
+                "المنزل": nom_in,
+                "المنتج": produit_in,
+                "الصنف": type_in,
+                "الكمية": quantite_in,
+                "السجل": f"استلام... {sijil_in}"
+            })
+            st.success(f"✅ تم الاستلام: {sijil_in}")
 
-# ══════════════════════════════════
-# تبويب المخزن
-# ══════════════════════════════════
 with tab3:
     st.markdown("### 🏪 المخزن والبحث")
-
     col_s1, col_s2 = st.columns(2)
     with col_s1:
         search_منزل = st.text_input("🔍 بحث باسم المنزل")
     with col_s2:
         search_منتج = st.text_input("🔍 بحث باسم المنتج")
 
-    if st.session_state.operations:
-        df_ops = pd.DataFrame(st.session_state.operations)
-
-        # ملخص الرصيد لكل منزل/منتج/صنف
+    df_ops = get_df_ops()
+    if not df_ops.empty:
         df_out = df_ops[df_ops["النوع"] == "إخراج"].groupby(["المنزل","المنتج","الصنف"])["الكمية"].sum()
         df_in  = df_ops[df_ops["النوع"] == "استلام"].groupby(["المنزل","المنتج","الصنف"])["الكمية"].sum()
         df_balance = (df_out - df_in).fillna(df_out).reset_index()
         df_balance.columns = ["المنزل", "المنتج", "الصنف", "الرصيد المتبقي"]
 
-        # تطبيق البحث
         if search_منزل:
             df_balance = df_balance[df_balance["المنزل"].str.contains(search_منزل, na=False)]
         if search_منتج:
             df_balance = df_balance[df_balance["المنتج"].str.contains(search_منتج, na=False)]
 
         st.dataframe(df_balance, use_container_width=True)
-
         st.divider()
         st.markdown("#### 📜 كل السجلات")
         st.dataframe(df_ops[["التاريخ","النوع","السجل"]], use_container_width=True)
