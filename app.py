@@ -34,7 +34,6 @@ st.markdown("<h1 style='text-align:center'>🧸 Baby Sympa</h1>", unsafe_allow_h
 st.markdown("<h4 style='text-align:center; color:#ccc'>لوحة تحكم ورشة الخياطة</h4>", unsafe_allow_html=True)
 
 sheet_id = "1JZUGpM6RBYDiLfX1Z5qKH5C6E2pfaRHF6dCDWmGXTso"
-
 BASE_IMAGE_URL = "https://raw.githubusercontent.com/hosinmariya-netizen/Mixer-Packaging/main/images/"
 
 @st.cache_data(ttl=60)
@@ -70,7 +69,9 @@ def get_df_ops():
 
 produits = df_karas["Référence"].dropna().tolist()
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📤 إخراج", "📥 استلام", "🏪 المخزن", "❌ الأخطاء", "📦 No Livraison", "🖼️ الصور"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "📤 إخراج", "📥 استلام", "🏪 المخزن", "❌ الأخطاء", "📦 No Livraison", "🖼️ الصور"
+])
 
 # ── إخراج
 with tab1:
@@ -294,33 +295,34 @@ with tab6:
 
     try:
         df_images = load_sheet("الصور")
-        # العمود B = المرجع ، العمود A = الرابط (اسم الصورة)
-        df_images.columns = [c.strip() for c in df_images.columns]
 
-        # دعم أي ترتيب للأعمدة
-        if "المرجع" in df_images.columns and "الرابط" in df_images.columns:
-            df_images = df_images[["المرجع", "الرابط"]].dropna()
-        else:
-            # أول عمود = المرجع، ثاني عمود = الرابط
-            df_images = df_images.iloc[:, :2]
-            df_images.columns = ["المرجع", "الرابط"]
-            df_images = df_images.dropna()
+        # الجدول: العمود A = الرابط (اسم الصورة) ، العمود B = المرجع
+        # الصف الأول هو العناوين: A1="الرابط" B1="المرجع"
+        df_images.columns = ["الرابط", "المرجع"] + list(df_images.columns[2:])
+        df_images = df_images[["المرجع", "الرابط"]].dropna(subset=["المرجع", "الرابط"])
+        df_images = df_images[df_images["المرجع"].str.strip() != ""]
+        df_images = df_images[df_images["الرابط"].str.strip() != ""]
 
         if search_ref:
-            df_images = df_images[df_images["المرجع"].str.contains(search_ref, case=False, na=False)]
+            df_images = df_images[
+                df_images["المرجع"].str.contains(search_ref, case=False, na=False)
+            ]
 
         if df_images.empty:
             st.info("لا توجد صور مطابقة.")
         else:
             cols = st.columns(3)
             for idx, row in df_images.reset_index(drop=True).iterrows():
-                img_url = BASE_IMAGE_URL + str(row["الرابط"]).strip()
+                img_name = str(row["الرابط"]).strip()
+                مرجع = str(row["المرجع"]).strip()
+                img_url = BASE_IMAGE_URL + img_name
                 with cols[idx % 3]:
                     try:
-                        st.image(img_url, caption=str(row["المرجع"]), use_column_width=True)
+                        st.image(img_url, caption=مرجع, use_column_width=True)
                     except:
-                        st.error(f"❌ لم يتم تحميل: {row['المرجع']}")
+                        st.error(f"❌ {مرجع}")
 
     except Exception as e:
-        st.warning("⚠️ تحقق من ورقة 'الصور' في Google Sheets — تأكد أن العمود B = المرجع والعمود A = اسم الصورة")
-        st.caption(f"تفاصيل الخطأ: {e}")
+        st.warning("⚠️ تحقق من ورقة 'الصور' في Google Sheets")
+        st.caption(f"تفاصيل: {e}")
+    
