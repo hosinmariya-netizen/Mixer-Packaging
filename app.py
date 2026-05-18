@@ -35,6 +35,8 @@ st.markdown("<h4 style='text-align:center; color:#ccc'>لوحة تحكم ورش�
 
 sheet_id = "1JZUGpM6RBYDiLfX1Z5qKH5C6E2pfaRHF6dCDWmGXTso"
 
+BASE_IMAGE_URL = "https://raw.githubusercontent.com/hosinmariya-netizen/Mixer-Packaging/main/images/"
+
 @st.cache_data(ttl=60)
 def load_sheet(name):
     url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={quote(name)}"
@@ -68,7 +70,7 @@ def get_df_ops():
 
 produits = df_karas["Référence"].dropna().tolist()
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["📤 إخراج", "📥 استلام", "🏪 المخزن", "❌ الأخطاء", "📦 No Livraison"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📤 إخراج", "📥 استلام", "🏪 المخزن", "❌ الأخطاء", "📦 No Livraison", "🖼️ الصور"])
 
 # ── إخراج
 with tab1:
@@ -84,7 +86,6 @@ with tab1:
     with col4:
         nom_out = st.selectbox("المنزل", منازل, key="out_nom")
 
-    # تاريخ قابل للتعديل
     date_out = st.date_input("📅 التاريخ", value=date.today(), key="out_date")
     time_out = st.time_input("🕐 الوقت", value=datetime.now().time(), key="out_time")
 
@@ -124,7 +125,6 @@ with tab2:
     with col4:
         nom_in = st.selectbox("المنزل", منازل, key="in_nom")
 
-    # تاريخ قابل للتعديل
     date_in = st.date_input("📅 التاريخ", value=date.today(), key="in_date")
     time_in = st.time_input("🕐 الوقت", value=datetime.now().time(), key="in_time")
 
@@ -285,3 +285,42 @@ with tab5:
                     st.rerun()
     else:
         st.info("لا توجد طلبيات منتظرة.")
+
+# ── الصور
+with tab6:
+    st.markdown("### 🖼️ معرض الصور")
+
+    search_ref = st.text_input("🔍 بحث بالمرجع", key="search_img")
+
+    try:
+        df_images = load_sheet("الصور")
+        # العمود B = المرجع ، العمود A = الرابط (اسم الصورة)
+        df_images.columns = [c.strip() for c in df_images.columns]
+
+        # دعم أي ترتيب للأعمدة
+        if "المرجع" in df_images.columns and "الرابط" in df_images.columns:
+            df_images = df_images[["المرجع", "الرابط"]].dropna()
+        else:
+            # أول عمود = المرجع، ثاني عمود = الرابط
+            df_images = df_images.iloc[:, :2]
+            df_images.columns = ["المرجع", "الرابط"]
+            df_images = df_images.dropna()
+
+        if search_ref:
+            df_images = df_images[df_images["المرجع"].str.contains(search_ref, case=False, na=False)]
+
+        if df_images.empty:
+            st.info("لا توجد صور مطابقة.")
+        else:
+            cols = st.columns(3)
+            for idx, row in df_images.reset_index(drop=True).iterrows():
+                img_url = BASE_IMAGE_URL + str(row["الرابط"]).strip()
+                with cols[idx % 3]:
+                    try:
+                        st.image(img_url, caption=str(row["المرجع"]), use_column_width=True)
+                    except:
+                        st.error(f"❌ لم يتم تحميل: {row['المرجع']}")
+
+    except Exception as e:
+        st.warning("⚠️ تحقق من ورقة 'الصور' في Google Sheets — تأكد أن العمود B = المرجع والعمود A = اسم الصورة")
+        st.caption(f"تفاصيل الخطأ: {e}")
