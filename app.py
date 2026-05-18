@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import requests
+import gspread
+from google.oauth2.service_account import Credentials
 from io import StringIO
 from urllib.parse import quote
 from datetime import datetime, date
@@ -35,14 +37,101 @@ st.markdown("<h4 style='text-align:center; color:#ccc'>لوحة تحكم ورش�
 
 sheet_id = "1JZUGpM6RBYDiLfX1Z5qKH5C6E2pfaRHF6dCDWmGXTso"
 BASE_IMAGE_URL = "https://raw.githubusercontent.com/hosinmariya-netizen/Mixer-Packaging/main/images/"
+SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
-@st.cache_data(ttl=60)
+# ── الاتصال بـ Google Sheets
+@st.cache_resource
+def get_spreadsheet():
+    creds = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=SCOPES
+    )
+    client = gspread.authorize(creds)
+    return client.open_by_key(sheet_id)
+
+def get_worksheet(name):
+    return get_spreadsheet().worksheet(name)
+
+# ── قراءة ورقة كـ DataFrame (للقراءة السريعة)
+@st.cache_data(ttl=30)
 def load_sheet(name):
     url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={quote(name)}"
     r = requests.get(url, timeout=10)
     return pd.read_csv(StringIO(r.text))
 
+# ── قراءة العمليات من ورقة History
+@st.cache_data(ttl=30)
+def load_operations():
+    try:
+        ws = get_worksheet("History")
+        data = ws.get_all_values()
+        if len(data) <= 1:
+            return pd.DataFrame(columns=["التاريخ","النوع","المنزل","المنتج","الصنف","الكمية","السجل"])
+        df = pd.DataFrame(data[1:], columns=data[0])
+        df["الكمية"] = pd.to_numeric(df["الكمية"], errors="coerce").fillna(0).astype(int)
+        return df
+    except:
+        return pd.DataFrame(columns=["التاريخ","النوع","المنزل","المنتج","الصنف","الكمية","السجل"])
+
+# ── حفظ عملية في ورقة History
+def save_operation(تاريخ, نوع, منزل, منتج, صنف, كمية, سجل):
+    try:
+        ws = get_worksheet("History")
+        if len(ws.get_all_values()) == 0:
+            ws.append_row(["التاريخ","النوع","المنزل","المنتج","الصنف","الكمية","السجل"])
+        ws.append_row([تاريخ, نوع, منزل, منتج, صنف, int(كمية), سجل])
+        load_operations.clear()
+        return True
+    except Exception as e:
+        st.warning(f"⚠️ خطأ في الحفظ: {e}")
+        return False
+
+# ── قراءة الطلبيات من ورقة No Livrai
+@st.cache_data(ttl=30)
+def load_livraisons():
+    try:
+        ws = get_worksheet("No Livrai")
+        data = ws.get_all_values()
+        if len(data) <= 1:
+            return []
+        livs = []
+        for i, row in enumerate(data[1:], start=2):
+            if len(row) >= 4 and row[3] == "نشط":
+                livs.append({
+                    "row_idx": i,
+                    "المنتج": row[0],
+                    "الكمية المطلوبة": int(row[1]) if str(row[1]).isdigit() else 0,
+                    "في الإنتاج": int(row[2]) if str(row[2]).isdigit() else 0,
+                    "الحالة": row[3]
+                })
+        return livs
+    except:
+        return []
+
+# ── حفظ طلبية
+def save_livraison(منتج, كمية):
+    try:
+        ws = get_worksheet("No Livrai")
+        if len(ws.get_all_values()) == 0:
+            ws.append_row(["المنتج","الكمية المطلوبة","في الإنتاج","الحالة"])
+        ws.append_row([منتج, int(كمية), 0, "نشط"])
+        load_livraisons.clear()
+        return True
+    except Exception as e:
+        st.warning(f"⚠️ {e}")
+        return False
+
+# ── إلغاء طلبية
+def cancel_livraison(row_idx):
+    try:
+        ws = get_worksheet("No Livrai")
+        ws.update_cell(row_idx, 4, "ملغى")
+        load_livraisons.clear()
+    except Exception as e:
+        st.warning(f"⚠️ {e}")
+
 df_karas = load_sheet("الكراس")
+produits = df_karas["Référence"].dropna().tolist()
 
 منازل = [
     "بباز عيسى", "ڤمغار محمد", "قبايلي خضير", "نعلوفي عيسى",
@@ -51,23 +140,13 @@ df_karas = load_sheet("الكراس")
     "سيوسيو نور الدين", "حجاج رستم", "باباحني يوسف", "باباحني خضير"
 ]
 
-if "operations" not in st.session_state:
-    st.session_state.operations = []
-if "errors" not in st.session_state:
-    st.session_state.errors = []
-if "livraisons" not in st.session_state:
-    st.session_state.livraisons = []
-
 def get_df_ops():
-    if st.session_state.operations:
-        df = pd.DataFrame(st.session_state.operations)
-        df["التاريخ"] = pd.to_datetime(df["التاريخ"])
+    df = load_operations()
+    if not df.empty:
+        df["التاريخ"] = pd.to_datetime(df["التاريخ"], errors="coerce")
         df = df.sort_values("التاريخ").reset_index(drop=True)
         df["التاريخ"] = df["التاريخ"].dt.strftime("%Y-%m-%d %H:%M")
-        return df
-    return pd.DataFrame(columns=["التاريخ","النوع","المنزل","المنتج","الصنف","الكمية","السجل"])
-
-produits = df_karas["Référence"].dropna().tolist()
+    return df
 
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📤 إخراج", "📥 استلام", "🏪 المخزن", "❌ الأخطاء", "📦 No Livraison", "🖼️ الصور"
@@ -95,22 +174,9 @@ with tab1:
 
     if st.button("✅ تأكيد الإخراج", use_container_width=True):
         تاريخ_كامل = datetime.combine(date_out, time_out).strftime("%Y-%m-%d %H:%M")
-        st.session_state.operations.append({
-            "التاريخ": تاريخ_كامل,
-            "النوع": "إخراج",
-            "المنزل": nom_out,
-            "المنتج": produit_out,
-            "الصنف": type_out,
-            "الكمية": quantite_out,
-            "السجل": f"إخراج... {sijil_out}"
-        })
-        for liv in st.session_state.livraisons:
-            if liv["المنتج"] == produit_out and liv["الحالة"] == "نشط":
-                liv["في الإنتاج"] = min(
-                    liv["في الإنتاج"] + quantite_out,
-                    liv["الكمية المطلوبة"]
-                )
-        st.success(f"✅ تم الإخراج: {sijil_out} — {تاريخ_كامل}")
+        ok = save_operation(تاريخ_كامل, "إخراج", nom_out, produit_out, type_out, quantite_out, f"إخراج... {sijil_out}")
+        if ok:
+            st.success(f"✅ تم الإخراج وحُفظ: {sijil_out} — {تاريخ_كامل}")
 
 # ── استلام
 with tab2:
@@ -139,34 +205,17 @@ with tab2:
             (df_ops["المنزل"] == nom_in) &
             (df_ops["المنتج"] == produit_in) &
             (df_ops["الصنف"] == type_in)
-        ]
-        اخراج = df_منزل[df_منزل["النوع"] == "إخراج"]["الكمية"].sum()
-        استلام_سابق = df_منزل[df_منزل["النوع"] == "استلام"]["الكمية"].sum()
+        ] if not df_ops.empty else pd.DataFrame()
+        اخراج = df_منزل[df_منزل["النوع"] == "إخراج"]["الكمية"].sum() if not df_منزل.empty else 0
+        استلام_سابق = df_منزل[df_منزل["النوع"] == "استلام"]["الكمية"].sum() if not df_منزل.empty else 0
         ناقص = اخراج - استلام_سابق - quantite_in
 
-        st.session_state.operations.append({
-            "التاريخ": تاريخ_كامل,
-            "النوع": "استلام",
-            "المنزل": nom_in,
-            "المنتج": produit_in,
-            "الصنف": type_in,
-            "الكمية": quantite_in,
-            "السجل": f"استلام... {sijil_in}"
-        })
-
-        if ناقص > 0:
-            st.session_state.errors.append({
-                "التاريخ": تاريخ_كامل,
-                "المنزل": nom_in,
-                "المنتج": produit_in,
-                "الصنف": type_in,
-                "المُخرَج": int(اخراج - استلام_سابق),
-                "المُستلَم": quantite_in,
-                "الناقص": int(ناقص)
-            })
-            st.warning(f"⚠️ تم الاستلام لكن هناك ناقص: {int(ناقص)} قطعة")
-        else:
-            st.success(f"✅ تم الاستلام: {sijil_in} — {تاريخ_كامل}")
+        ok = save_operation(تاريخ_كامل, "استلام", nom_in, produit_in, type_in, quantite_in, f"استلام... {sijil_in}")
+        if ok:
+            if ناقص > 0:
+                st.warning(f"⚠️ تم الاستلام لكن هناك ناقص: {int(ناقص)} قطعة")
+            else:
+                st.success(f"✅ تم الاستلام وحُفظ: {sijil_in} — {تاريخ_كامل}")
 
 # ── المخزن
 with tab3:
@@ -176,6 +225,10 @@ with tab3:
         search_منزل = st.text_input("🔍 بحث باسم المنزل")
     with col_s2:
         search_منتج = st.text_input("🔍 بحث باسم المنتج")
+
+    if st.button("🔄 تحديث البيانات", use_container_width=True):
+        load_operations.clear()
+        st.rerun()
 
     df_ops = get_df_ops()
     if not df_ops.empty:
@@ -196,7 +249,6 @@ with tab3:
         st.divider()
         st.markdown("#### 📜 كل السجلات (مرتبة زمنياً)")
         st.dataframe(df_ops[["التاريخ","النوع","المنزل","المنتج","الصنف","الكمية","السجل"]], use_container_width=True)
-
         csv = df_ops.to_csv(index=False).encode("utf-8-sig")
         st.download_button("⬇️ تحميل CSV", csv, "سجل_العمليات.csv", "text/csv")
     else:
@@ -205,32 +257,29 @@ with tab3:
 # ── الأخطاء
 with tab4:
     st.markdown("### ❌ سجل الأخطاء (الناقص فقط)")
-
     df_ops = get_df_ops()
-    if not df_ops.empty and st.session_state.errors:
-        df_errors = pd.DataFrame(st.session_state.errors)
+    if not df_ops.empty:
         rows = []
-        for _, row in df_errors.iterrows():
-            df_منزل = df_ops[
-                (df_ops["المنزل"] == row["المنزل"]) &
-                (df_ops["المنتج"] == row["المنتج"]) &
-                (df_ops["الصنف"] == row["الصنف"])
-            ]
-            اخراج_كلي = df_منزل[df_منزل["النوع"] == "إخراج"]["الكمية"].sum()
-            استلام_كلي = df_منزل[df_منزل["النوع"] == "استلام"]["الكمية"].sum()
-            ناقص_حالي = max(0, اخراج_كلي - استلام_كلي)
-            if ناقص_حالي > 0:
-                rows.append({
-                    "المنزل": row["المنزل"],
-                    "المنتج": row["المنتج"],
-                    "الصنف": row["الصنف"],
-                    "المُخرَج": int(اخراج_كلي),
-                    "المُستلَم": int(استلام_كلي),
-                    "الناقص الحالي": int(ناقص_حالي)
-                })
-
+        for منزل in df_ops["المنزل"].unique():
+            for منتج in df_ops[df_ops["المنزل"] == منزل]["المنتج"].unique():
+                for صنف in df_ops[(df_ops["المنزل"] == منزل) & (df_ops["المنتج"] == منتج)]["الصنف"].unique():
+                    df_f = df_ops[
+                        (df_ops["المنزل"] == منزل) &
+                        (df_ops["المنتج"] == منتج) &
+                        (df_ops["الصنف"] == صنف)
+                    ]
+                    اخراج_كلي = df_f[df_f["النوع"] == "إخراج"]["الكمية"].sum()
+                    استلام_كلي = df_f[df_f["النوع"] == "استلام"]["الكمية"].sum()
+                    ناقص_حالي = max(0, اخراج_كلي - استلام_كلي)
+                    if ناقص_حالي > 0:
+                        rows.append({
+                            "المنزل": منزل, "المنتج": منتج, "الصنف": صنف,
+                            "المُخرَج": int(اخراج_كلي),
+                            "المُستلَم": int(استلام_كلي),
+                            "الناقص الحالي": int(ناقص_حالي)
+                        })
         if rows:
-            df_active_errors = pd.DataFrame(rows).drop_duplicates(subset=["المنزل","المنتج","الصنف"])
+            df_active_errors = pd.DataFrame(rows)
             st.dataframe(df_active_errors, use_container_width=True)
             st.divider()
             st.markdown("#### 📊 إجمالي الناقص لكل منزل")
@@ -246,7 +295,6 @@ with tab4:
 # ── No Livraison
 with tab5:
     st.markdown("### 📦 No Livraison — الطلبيات المنتظرة")
-
     st.markdown("#### ➕ إضافة طلبية")
     col1, col2 = st.columns(2)
     with col1:
@@ -255,24 +303,16 @@ with tab5:
         liv_qty = st.number_input("الكمية المطلوبة", min_value=1, step=1, key="liv_qty")
 
     if st.button("➕ إضافة الطلبية", use_container_width=True):
-        st.session_state.livraisons.append({
-            "المنتج": liv_prod,
-            "الكمية المطلوبة": liv_qty,
-            "في الإنتاج": 0,
-            "الحالة": "نشط"
-        })
-        st.success(f"✅ تمت إضافة طلبية {liv_prod} / {liv_qty}")
+        if save_livraison(liv_prod, liv_qty):
+            st.success(f"✅ تمت إضافة طلبية {liv_prod} / {liv_qty}")
+            st.rerun()
 
     st.divider()
-
-    livraisons_actives = [
-        (i, l) for i, l in enumerate(st.session_state.livraisons)
-        if l["الحالة"] == "نشط"
-    ]
+    livraisons_actives = load_livraisons()
 
     if livraisons_actives:
         st.markdown("#### 📋 الطلبيات النشطة")
-        for i, liv in livraisons_actives:
+        for liv in livraisons_actives:
             col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
             with col1:
                 st.write(f"**{liv['المنتج']}**")
@@ -281,8 +321,8 @@ with tab5:
             with col3:
                 st.write(f"إنتاج: {liv['في الإنتاج']}")
             with col4:
-                if st.button("🗑️ إلغاء", key=f"cancel_{i}"):
-                    st.session_state.livraisons[i]["الحالة"] = "ملغى"
+                if st.button("🗑️ إلغاء", key=f"cancel_{liv['row_idx']}"):
+                    cancel_livraison(liv["row_idx"])
                     st.rerun()
     else:
         st.info("لا توجد طلبيات منتظرة.")
@@ -290,39 +330,28 @@ with tab5:
 # ── الصور
 with tab6:
     st.markdown("### 🖼️ معرض الصور")
-
     search_ref = st.text_input("🔍 بحث بالمرجع", key="search_img")
-
     try:
         df_images = load_sheet("الصور")
-
-        # الجدول: العمود A = الرابط (اسم الصورة) ، العمود B = المرجع
-        # الصف الأول هو العناوين: A1="الرابط" B1="المرجع"
         df_images.columns = ["الرابط", "المرجع"] + list(df_images.columns[2:])
         df_images = df_images[["المرجع", "الرابط"]].dropna(subset=["المرجع", "الرابط"])
         df_images = df_images[df_images["المرجع"].str.strip() != ""]
         df_images = df_images[df_images["الرابط"].str.strip() != ""]
-
         if search_ref:
-            df_images = df_images[
-                df_images["المرجع"].str.contains(search_ref, case=False, na=False)
-            ]
-
+            df_images = df_images[df_images["المرجع"].str.contains(search_ref, case=False, na=False)]
         if df_images.empty:
             st.info("لا توجد صور مطابقة.")
         else:
             cols = st.columns(3)
             for idx, row in df_images.reset_index(drop=True).iterrows():
-                img_name = str(row["الرابط"]).strip()
+                img_url = BASE_IMAGE_URL + str(row["الرابط"]).strip()
                 مرجع = str(row["المرجع"]).strip()
-                img_url = BASE_IMAGE_URL + img_name
                 with cols[idx % 3]:
                     try:
                         st.image(img_url, caption=مرجع, use_column_width=True)
                     except:
                         st.error(f"❌ {مرجع}")
-
     except Exception as e:
         st.warning("⚠️ تحقق من ورقة 'الصور' في Google Sheets")
         st.caption(f"تفاصيل: {e}")
-    
+                                         
