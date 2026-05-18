@@ -1,1 +1,30 @@
+# تبويب الصور - يُضاف لكودك الحالي
 
+BASE_IMAGE_URL = "https://raw.githubusercontent.com/hosinmariya-netizen/Mixer-Packaging/main/images/"
+
+@st.cache_data(ttl=60)
+def load_images_sheet():
+    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={quote('الصور')}"
+    r = requests.get(url, timeout=10)
+    return pd.read_csv(StringIO(r.text))
+
+# في tab الصور
+with tab_صور:  # أضف هذا للتبويبات
+    st.markdown("### 🖼️ معرض الصور")
+    
+    search_ref = st.text_input("🔍 بحث بالمرجع")
+    
+    try:
+        df_images = load_images_sheet()
+        df_images.columns = ["المرجع", "الرابط"]
+        
+        if search_ref:
+            df_images = df_images[df_images["المرجع"].str.contains(search_ref, na=False)]
+        
+        cols = st.columns(3)
+        for idx, row in df_images.iterrows():
+            url_img = BASE_IMAGE_URL + str(row["الرابط"])
+            with cols[idx % 3]:
+                st.image(url_img, caption=row["المرجع"], use_column_width=True)
+    except:
+        st.warning("تحقق من جدول الصور في Google Sheets")
