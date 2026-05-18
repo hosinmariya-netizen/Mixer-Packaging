@@ -52,14 +52,28 @@ def get_spreadsheet():
 def get_worksheet(name):
     return get_spreadsheet().worksheet(name)
 
-# ── قراءة ورقة كـ DataFrame (للقراءة السريعة)
+# ── قراءة ورقة كـ DataFrame
 @st.cache_data(ttl=30)
-def load_sheet(name):
+def load_sheet_csv(name):
     url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={quote(name)}"
     r = requests.get(url, timeout=10)
     return pd.read_csv(StringIO(r.text))
 
-# ── قراءة العمليات من ورقة History
+# ── قراءة المنتجات من الكراس
+@st.cache_data(ttl=60)
+def load_produits():
+    df = load_sheet_csv("الكراس")
+    return df["Référence"].dropna().tolist()
+
+# ── قراءة المنازل من السلع (العمود A من الصف 2)
+@st.cache_data(ttl=60)
+def load_منازل():
+    df = load_sheet_csv("السلع")
+    col_a = df.iloc[:, 0].dropna()
+    col_a = col_a[col_a.str.strip() != ""]
+    return col_a.tolist()
+
+# ── قراءة العمليات من History
 @st.cache_data(ttl=30)
 def load_operations():
     try:
@@ -73,7 +87,7 @@ def load_operations():
     except:
         return pd.DataFrame(columns=["التاريخ","النوع","المنزل","المنتج","الصنف","الكمية","السجل"])
 
-# ── حفظ عملية في ورقة History
+# ── حفظ عملية في History
 def save_operation(تاريخ, نوع, منزل, منتج, صنف, كمية, سجل):
     try:
         ws = get_worksheet("History")
@@ -86,7 +100,7 @@ def save_operation(تاريخ, نوع, منزل, منتج, صنف, كمية, س�
         st.warning(f"⚠️ خطأ في الحفظ: {e}")
         return False
 
-# ── قراءة الطلبيات من ورقة No Livrai
+# ── قراءة الطلبيات من No Livrai
 @st.cache_data(ttl=30)
 def load_livraisons():
     try:
@@ -130,15 +144,18 @@ def cancel_livraison(row_idx):
     except Exception as e:
         st.warning(f"⚠️ {e}")
 
-df_karas = load_sheet("الكراس")
-produits = df_karas["Référence"].dropna().tolist()
-
-منازل = [
-    "بباز عيسى", "ڤمغار محمد", "قبايلي خضير", "نعلوفي عيسى",
-    "لالوة محمد", "ببايا توفيق", "أداود يحيى", "أداود عبد الرحمان",
-    "أداود عمر", "بضليس فارس", "بضليس يوسف", "كيوكيو محمد",
-    "سيوسيو نور الدين", "حجاج رستم", "باباحني يوسف", "باباحني خضير"
-]
+# ── قراءة الصور
+@st.cache_data(ttl=60)
+def load_images():
+    try:
+        df = load_sheet_csv("الصور")
+        df.columns = ["الرابط", "المرجع"] + list(df.columns[2:])
+        df = df[["المرجع", "الرابط"]].dropna(subset=["المرجع", "الرابط"])
+        df = df[df["المرجع"].str.strip() != ""]
+        df = df[df["الرابط"].str.strip() != ""]
+        return df
+    except:
+        return pd.DataFrame(columns=["المرجع", "الرابط"])
 
 def get_df_ops():
     df = load_operations()
@@ -147,6 +164,20 @@ def get_df_ops():
         df = df.sort_values("التاريخ").reset_index(drop=True)
         df["التاريخ"] = df["التاريخ"].dt.strftime("%Y-%m-%d %H:%M")
     return df
+
+# ── تحميل البيانات من Sheets
+produits = load_produits()
+منازل = load_منازل()
+
+# ── زر تحديث عام
+if st.button("🔄 تحديث جميع البيانات", use_container_width=True):
+    load_produits.clear()
+    load_منازل.clear()
+    load_operations.clear()
+    load_livraisons.clear()
+    load_images.clear()
+    load_sheet_csv.clear()
+    st.rerun()
 
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📤 إخراج", "📥 استلام", "🏪 المخزن", "❌ الأخطاء", "📦 No Livraison", "🖼️ الصور"
@@ -201,14 +232,17 @@ with tab2:
     if st.button("✅ تأكيد الاستلام", use_container_width=True):
         تاريخ_كامل = datetime.combine(date_in, time_in).strftime("%Y-%m-%d %H:%M")
         df_ops = get_df_ops()
-        df_منزل = df_ops[
-            (df_ops["المنزل"] == nom_in) &
-            (df_ops["المنتج"] == produit_in) &
-            (df_ops["الصنف"] == type_in)
-        ] if not df_ops.empty else pd.DataFrame()
-        اخراج = df_منزل[df_منزل["النوع"] == "إخراج"]["الكمية"].sum() if not df_منزل.empty else 0
-        استلام_سابق = df_منزل[df_منزل["النوع"] == "استلام"]["الكمية"].sum() if not df_منزل.empty else 0
-        ناقص = اخراج - استلام_سابق - quantite_in
+        if not df_ops.empty:
+            df_منزل = df_ops[
+                (df_ops["المنزل"] == nom_in) &
+                (df_ops["المنتج"] == produit_in) &
+                (df_ops["الصنف"] == type_in)
+            ]
+            اخراج = df_منزل[df_منزل["النوع"] == "إخراج"]["الكمية"].sum()
+            استلام_سابق = df_منزل[df_منزل["النوع"] == "استلام"]["الكمية"].sum()
+            ناقص = اخراج - استلام_سابق - quantite_in
+        else:
+            ناقص = 0
 
         ok = save_operation(تاريخ_كامل, "استلام", nom_in, produit_in, type_in, quantite_in, f"استلام... {sijil_in}")
         if ok:
@@ -226,7 +260,7 @@ with tab3:
     with col_s2:
         search_منتج = st.text_input("🔍 بحث باسم المنتج")
 
-    if st.button("🔄 تحديث البيانات", use_container_width=True):
+    if st.button("🔄 تحديث المخزن", use_container_width=True):
         load_operations.clear()
         st.rerun()
 
@@ -262,7 +296,10 @@ with tab4:
         rows = []
         for منزل in df_ops["المنزل"].unique():
             for منتج in df_ops[df_ops["المنزل"] == منزل]["المنتج"].unique():
-                for صنف in df_ops[(df_ops["المنزل"] == منزل) & (df_ops["المنتج"] == منتج)]["الصنف"].unique():
+                for صنف in df_ops[
+                    (df_ops["المنزل"] == منزل) &
+                    (df_ops["المنتج"] == منتج)
+                ]["الصنف"].unique():
                     df_f = df_ops[
                         (df_ops["المنزل"] == منزل) &
                         (df_ops["المنتج"] == منتج) &
@@ -331,27 +368,26 @@ with tab5:
 with tab6:
     st.markdown("### 🖼️ معرض الصور")
     search_ref = st.text_input("🔍 بحث بالمرجع", key="search_img")
-    try:
-        df_images = load_sheet("الصور")
-        df_images.columns = ["الرابط", "المرجع"] + list(df_images.columns[2:])
-        df_images = df_images[["المرجع", "الرابط"]].dropna(subset=["المرجع", "الرابط"])
-        df_images = df_images[df_images["المرجع"].str.strip() != ""]
-        df_images = df_images[df_images["الرابط"].str.strip() != ""]
-        if search_ref:
-            df_images = df_images[df_images["المرجع"].str.contains(search_ref, case=False, na=False)]
-        if df_images.empty:
-            st.info("لا توجد صور مطابقة.")
-        else:
-            cols = st.columns(3)
-            for idx, row in df_images.reset_index(drop=True).iterrows():
-                img_url = BASE_IMAGE_URL + str(row["الرابط"]).strip()
-                مرجع = str(row["المرجع"]).strip()
-                with cols[idx % 3]:
-                    try:
-                        st.image(img_url, caption=مرجع, use_column_width=True)
-                    except:
-                        st.error(f"❌ {مرجع}")
-    except Exception as e:
-        st.warning("⚠️ تحقق من ورقة 'الصور' في Google Sheets")
-        st.caption(f"تفاصيل: {e}")
-                                         
+
+    if st.button("🔄 تحديث الصور", use_container_width=True):
+        load_images.clear()
+        load_sheet_csv.clear()
+        st.rerun()
+
+    df_images = load_images()
+    if search_ref:
+        df_images = df_images[df_images["المرجع"].str.contains(search_ref, case=False, na=False)]
+
+    if df_images.empty:
+        st.info("لا توجد صور — أضف بيانات في ورقة 'الصور' في Google Sheets.")
+    else:
+        cols = st.columns(3)
+        for idx, row in df_images.reset_index(drop=True).iterrows():
+            img_url = BASE_IMAGE_URL + str(row["الرابط"]).strip()
+            مرجع = str(row["المرجع"]).strip()
+            with cols[idx % 3]:
+                try:
+                    st.image(img_url, caption=مرجع, use_column_width=True)
+                except:
+                    st.error(f"❌ {مرجع}")
+    
