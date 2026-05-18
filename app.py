@@ -3,7 +3,7 @@ import pandas as pd
 import requests
 from io import StringIO
 from urllib.parse import quote
-from datetime import datetime
+from datetime import datetime, date
 
 st.set_page_config(page_title="Baby Sympa", page_icon="🧸", layout="centered")
 
@@ -59,7 +59,11 @@ if "livraisons" not in st.session_state:
 
 def get_df_ops():
     if st.session_state.operations:
-        return pd.DataFrame(st.session_state.operations)
+        df = pd.DataFrame(st.session_state.operations)
+        df["التاريخ"] = pd.to_datetime(df["التاريخ"])
+        df = df.sort_values("التاريخ").reset_index(drop=True)
+        df["التاريخ"] = df["التاريخ"].dt.strftime("%Y-%m-%d %H:%M")
+        return df
     return pd.DataFrame(columns=["التاريخ","النوع","المنزل","المنتج","الصنف","الكمية","السجل"])
 
 produits = df_karas["Référence"].dropna().tolist()
@@ -80,12 +84,17 @@ with tab1:
     with col4:
         nom_out = st.selectbox("المنزل", منازل, key="out_nom")
 
+    # تاريخ قابل للتعديل
+    date_out = st.date_input("📅 التاريخ", value=date.today(), key="out_date")
+    time_out = st.time_input("🕐 الوقت", value=datetime.now().time(), key="out_time")
+
     sijil_out = f"{nom_out} / {produit_out}/{type_out}/{quantite_out}"
     st.info(f"📝 إخراج... {sijil_out}")
 
     if st.button("✅ تأكيد الإخراج", use_container_width=True):
+        تاريخ_كامل = datetime.combine(date_out, time_out).strftime("%Y-%m-%d %H:%M")
         st.session_state.operations.append({
-            "التاريخ": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "التاريخ": تاريخ_كامل,
             "النوع": "إخراج",
             "المنزل": nom_out,
             "المنتج": produit_out,
@@ -93,14 +102,13 @@ with tab1:
             "الكمية": quantite_out,
             "السجل": f"إخراج... {sijil_out}"
         })
-        # ننقص من No Livraison تلقائياً
         for liv in st.session_state.livraisons:
             if liv["المنتج"] == produit_out and liv["الحالة"] == "نشط":
                 liv["في الإنتاج"] = min(
                     liv["في الإنتاج"] + quantite_out,
                     liv["الكمية المطلوبة"]
                 )
-        st.success(f"✅ تم الإخراج: {sijil_out}")
+        st.success(f"✅ تم الإخراج: {sijil_out} — {تاريخ_كامل}")
 
 # ── استلام
 with tab2:
@@ -116,10 +124,15 @@ with tab2:
     with col4:
         nom_in = st.selectbox("المنزل", منازل, key="in_nom")
 
+    # تاريخ قابل للتعديل
+    date_in = st.date_input("📅 التاريخ", value=date.today(), key="in_date")
+    time_in = st.time_input("🕐 الوقت", value=datetime.now().time(), key="in_time")
+
     sijil_in = f"{nom_in} / {produit_in}/{type_in}/{quantite_in}"
     st.info(f"📝 استلام... {sijil_in}")
 
     if st.button("✅ تأكيد الاستلام", use_container_width=True):
+        تاريخ_كامل = datetime.combine(date_in, time_in).strftime("%Y-%m-%d %H:%M")
         df_ops = get_df_ops()
         df_منزل = df_ops[
             (df_ops["المنزل"] == nom_in) &
@@ -131,7 +144,7 @@ with tab2:
         ناقص = اخراج - استلام_سابق - quantite_in
 
         st.session_state.operations.append({
-            "التاريخ": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "التاريخ": تاريخ_كامل,
             "النوع": "استلام",
             "المنزل": nom_in,
             "المنتج": produit_in,
@@ -142,7 +155,7 @@ with tab2:
 
         if ناقص > 0:
             st.session_state.errors.append({
-                "التاريخ": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "التاريخ": تاريخ_كامل,
                 "المنزل": nom_in,
                 "المنتج": produit_in,
                 "الصنف": type_in,
@@ -152,7 +165,7 @@ with tab2:
             })
             st.warning(f"⚠️ تم الاستلام لكن هناك ناقص: {int(ناقص)} قطعة")
         else:
-            st.success(f"✅ تم الاستلام: {sijil_in}")
+            st.success(f"✅ تم الاستلام: {sijil_in} — {تاريخ_كامل}")
 
 # ── المخزن
 with tab3:
@@ -180,7 +193,7 @@ with tab3:
 
         st.dataframe(df_balance, use_container_width=True)
         st.divider()
-        st.markdown("#### 📜 كل السجلات")
+        st.markdown("#### 📜 كل السجلات (مرتبة زمنياً)")
         st.dataframe(df_ops[["التاريخ","النوع","المنزل","المنتج","الصنف","الكمية","السجل"]], use_container_width=True)
 
         csv = df_ops.to_csv(index=False).encode("utf-8-sig")
@@ -191,16 +204,41 @@ with tab3:
 # ── الأخطاء
 with tab4:
     st.markdown("### ❌ سجل الأخطاء (الناقص فقط)")
-    if st.session_state.errors:
+
+    df_ops = get_df_ops()
+    if not df_ops.empty and st.session_state.errors:
         df_errors = pd.DataFrame(st.session_state.errors)
-        st.dataframe(df_errors, use_container_width=True)
-        st.divider()
-        st.markdown("#### 📊 إجمالي الناقص لكل منزل")
-        df_total = df_errors.groupby(["المنزل","المنتج","الصنف"])["الناقص"].sum().reset_index()
-        df_total.columns = ["المنزل", "المنتج", "الصنف", "إجمالي الناقص"]
-        st.dataframe(df_total, use_container_width=True)
-        csv_err = df_errors.to_csv(index=False).encode("utf-8-sig")
-        st.download_button("⬇️ تحميل الأخطاء CSV", csv_err, "الأخطاء.csv", "text/csv")
+        rows = []
+        for _, row in df_errors.iterrows():
+            df_منزل = df_ops[
+                (df_ops["المنزل"] == row["المنزل"]) &
+                (df_ops["المنتج"] == row["المنتج"]) &
+                (df_ops["الصنف"] == row["الصنف"])
+            ]
+            اخراج_كلي = df_منزل[df_منزل["النوع"] == "إخراج"]["الكمية"].sum()
+            استلام_كلي = df_منزل[df_منزل["النوع"] == "استلام"]["الكمية"].sum()
+            ناقص_حالي = max(0, اخراج_كلي - استلام_كلي)
+            if ناقص_حالي > 0:
+                rows.append({
+                    "المنزل": row["المنزل"],
+                    "المنتج": row["المنتج"],
+                    "الصنف": row["الصنف"],
+                    "المُخرَج": int(اخراج_كلي),
+                    "المُستلَم": int(استلام_كلي),
+                    "الناقص الحالي": int(ناقص_حالي)
+                })
+
+        if rows:
+            df_active_errors = pd.DataFrame(rows).drop_duplicates(subset=["المنزل","المنتج","الصنف"])
+            st.dataframe(df_active_errors, use_container_width=True)
+            st.divider()
+            st.markdown("#### 📊 إجمالي الناقص لكل منزل")
+            df_total = df_active_errors.groupby(["المنزل","المنتج","الصنف"])["الناقص الحالي"].sum().reset_index()
+            st.dataframe(df_total, use_container_width=True)
+            csv_err = df_active_errors.to_csv(index=False).encode("utf-8-sig")
+            st.download_button("⬇️ تحميل الأخطاء CSV", csv_err, "الأخطاء.csv", "text/csv")
+        else:
+            st.success("✅ تمت تسوية كل الأخطاء!")
     else:
         st.success("✅ لا توجد أخطاء حتى الآن!")
 
@@ -208,7 +246,6 @@ with tab4:
 with tab5:
     st.markdown("### 📦 No Livraison — الطلبيات المنتظرة")
 
-    # إضافة طلبية جديدة
     st.markdown("#### ➕ إضافة طلبية")
     col1, col2 = st.columns(2)
     with col1:
@@ -227,7 +264,6 @@ with tab5:
 
     st.divider()
 
-    # عرض الطلبيات النشطة
     livraisons_actives = [
         (i, l) for i, l in enumerate(st.session_state.livraisons)
         if l["الحالة"] == "نشط"
