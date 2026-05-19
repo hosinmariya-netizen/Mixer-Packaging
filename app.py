@@ -29,6 +29,29 @@ st.markdown("""
     position: relative;
     z-index: 1;
 }
+
+/* Suggestion dropdown style */
+.suggestion-box {
+    background: #1e1e2e;
+    border: 1px solid #444;
+    border-radius: 8px;
+    padding: 4px 0;
+    margin-top: -10px;
+    margin-bottom: 10px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+.suggestion-item {
+    padding: 8px 14px;
+    cursor: pointer;
+    color: #eee;
+    font-size: 15px;
+    border-bottom: 1px solid #333;
+    transition: background 0.2s;
+}
+.suggestion-item:hover {
+    background: #2a2a3e;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -39,7 +62,6 @@ sheet_id = "1JZUGpM6RBYDiLfX1Z5qKH5C6E2pfaRHF6dCDWmGXTso"
 BASE_IMAGE_URL = "https://raw.githubusercontent.com/hosinmariya-netizen/Mixer-Packaging/main/images/"
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
-# ── الاتصال بـ Google Sheets
 @st.cache_resource
 def get_spreadsheet():
     creds = Credentials.from_service_account_info(
@@ -52,27 +74,23 @@ def get_spreadsheet():
 def get_worksheet(name):
     return get_spreadsheet().worksheet(name)
 
-# ── قراءة ورقة كـ DataFrame
 @st.cache_data(ttl=30)
 def load_sheet_csv(name):
     url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={quote(name)}"
     r = requests.get(url, timeout=10)
     return pd.read_csv(StringIO(r.text))
 
-# ── قراءة المنتجات من الكراس
 @st.cache_data(ttl=60)
 def load_produits():
     df = load_sheet_csv("الكراس")
     return df["Référence"].dropna().tolist()
 
-# ── قراءة الأنواع من الكراس (B1, C1, D1, E1 ...)
 @st.cache_data(ttl=60)
 def load_types():
     df = load_sheet_csv("الكراس")
     types = [col.strip() for col in df.columns[1:] if col.strip() != ""]
     return types if types else ["FN", "CT"]
 
-# ── قراءة المنازل من السلع (العمود A من الصف 2)
 @st.cache_data(ttl=60)
 def load_منازل():
     df = load_sheet_csv("السلع")
@@ -80,7 +98,7 @@ def load_منازل():
     col_a = col_a[col_a.str.strip() != ""]
     return col_a.tolist()
 
-# ── قراءة العمليات من History
+# ── History
 @st.cache_data(ttl=30)
 def load_operations():
     try:
@@ -94,7 +112,6 @@ def load_operations():
     except:
         return pd.DataFrame(columns=["التاريخ","النوع","المنزل","المنتج","الصنف","الكمية","السجل"])
 
-# ── حفظ عملية في History
 def save_operation(تاريخ, نوع, منزل, منتج, صنف, كمية, سجل):
     try:
         ws = get_worksheet("History")
@@ -107,7 +124,53 @@ def save_operation(تاريخ, نوع, منزل, منتج, صنف, كمية, س�
         st.warning(f"⚠️ خطأ في الحفظ: {e}")
         return False
 
-# ── قراءة الطلبيات من No Livrai
+def delete_operation(row_idx):
+    try:
+        ws = get_worksheet("History")
+        ws.delete_rows(row_idx + 2)
+        load_operations.clear()
+        return True
+    except Exception as e:
+        st.warning(f"⚠️ خطأ في الحذف: {e}")
+        return False
+
+# ── البيع
+@st.cache_data(ttl=30)
+def load_ventes():
+    try:
+        ws = get_worksheet("البيع")
+        data = ws.get_all_values()
+        if len(data) <= 1:
+            return pd.DataFrame(columns=["التاريخ","النوع","المنزل","المنتج","الصنف","الكمية","السجل"])
+        df = pd.DataFrame(data[1:], columns=data[0])
+        df["الكمية"] = pd.to_numeric(df["الكمية"], errors="coerce").fillna(0).astype(int)
+        return df
+    except:
+        return pd.DataFrame(columns=["التاريخ","النوع","المنزل","المنتج","الصنف","الكمية","السجل"])
+
+def save_vente(تاريخ, منزل, منتج, صنف, كمية, سجل):
+    try:
+        ws = get_worksheet("البيع")
+        if len(ws.get_all_values()) == 0:
+            ws.append_row(["التاريخ","النوع","المنزل","المنتج","الصنف","الكمية","السجل"])
+        ws.append_row([تاريخ, "بيع", منزل, منتج, صنف, int(كمية), سجل])
+        load_ventes.clear()
+        return True
+    except Exception as e:
+        st.warning(f"⚠️ خطأ في حفظ البيع: {e}")
+        return False
+
+def delete_vente(row_idx):
+    try:
+        ws = get_worksheet("البيع")
+        ws.delete_rows(row_idx + 2)
+        load_ventes.clear()
+        return True
+    except Exception as e:
+        st.warning(f"⚠️ {e}")
+        return False
+
+# ── No Livrai
 @st.cache_data(ttl=30)
 def load_livraisons():
     try:
@@ -129,7 +192,6 @@ def load_livraisons():
     except:
         return []
 
-# ── حفظ طلبية
 def save_livraison(منتج, كمية):
     try:
         ws = get_worksheet("No Livrai")
@@ -142,7 +204,6 @@ def save_livraison(منتج, كمية):
         st.warning(f"⚠️ {e}")
         return False
 
-# ── إلغاء طلبية
 def cancel_livraison(row_idx):
     try:
         ws = get_worksheet("No Livrai")
@@ -151,7 +212,7 @@ def cancel_livraison(row_idx):
     except Exception as e:
         st.warning(f"⚠️ {e}")
 
-# ── قراءة الصور
+# ── الصور
 @st.cache_data(ttl=60)
 def load_images():
     try:
@@ -172,27 +233,54 @@ def get_df_ops():
         df["التاريخ"] = df["التاريخ"].dt.strftime("%Y-%m-%d %H:%M")
     return df
 
-# ── تحميل البيانات من Sheets
+def get_df_ventes():
+    df = load_ventes()
+    if not df.empty:
+        df["التاريخ"] = pd.to_datetime(df["التاريخ"], errors="coerce")
+        df = df.sort_values("التاريخ").reset_index(drop=True)
+        df["التاريخ"] = df["التاريخ"].dt.strftime("%Y-%m-%d %H:%M")
+    return df
+
+# ── helper: بحث مع اقتراحات منزلقة
+def search_with_slide(label, options, key):
+    """بحث مع قائمة اقتراحات منزلقة تظهر أثناء الكتابة"""
+    query = st.text_input(label, key=key)
+    selected = query
+    if query and query.strip():
+        suggestions = [o for o in options if query.strip().lower() in o.lower()]
+        if suggestions:
+            # عرض الاقتراحات كأزرار منزلقة
+            st.markdown("<div style='background:#1e1e2e;border:1px solid #444;border-radius:8px;padding:4px 0;margin-top:-8px;margin-bottom:8px;'>", unsafe_allow_html=True)
+            for i, sug in enumerate(suggestions[:6]):
+                if st.button(f"👤 {sug}" if len(sug) > 3 else sug, key=f"{key}_sug_{i}", use_container_width=True):
+                    st.session_state[key] = sug
+                    st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
+    # إذا تم اختيار اقتراح يُحدَّث تلقائياً
+    return st.session_state.get(key, query)
+
 produits = load_produits()
 منازل = load_منازل()
 types = load_types()
 
-# ── زر تحديث عام
 if st.button("🔄 تحديث جميع البيانات", use_container_width=True):
     load_produits.clear()
     load_منازل.clear()
     load_types.clear()
     load_operations.clear()
+    load_ventes.clear()
     load_livraisons.clear()
     load_images.clear()
     load_sheet_csv.clear()
     st.rerun()
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "📤 إخراج", "📥 استلام", "🏪 المخزن", "❌ الأخطاء", "📦 No Livraison", "🖼️ الصور"
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    "📤 إخراج", "📥 استلام", "🛒 البيع", "🏪 المخزن", "❌ الأخطاء", "📦 No Livraison", "🖼️ الصور"
 ])
 
-# ── إخراج
+# ════════════════════════════════════════
+# ── Tab 1: إخراج
+# ════════════════════════════════════════
 with tab1:
     st.markdown("### 📤 إخراج إلى المنزل")
     col1, col2 = st.columns(2)
@@ -205,20 +293,18 @@ with tab1:
         type_out = st.selectbox("النوع", types, key="out_type")
     with col4:
         nom_out = st.selectbox("المنزل", منازل, key="out_nom")
-
     date_out = st.date_input("📅 التاريخ", value=date.today(), key="out_date")
     time_out = st.time_input("🕐 الوقت", value=datetime.now().time(), key="out_time")
-
     sijil_out = f"{nom_out} / {produit_out}/{type_out}/{quantite_out}"
     st.info(f"📝 إخراج... {sijil_out}")
-
     if st.button("✅ تأكيد الإخراج", use_container_width=True):
         تاريخ_كامل = datetime.combine(date_out, time_out).strftime("%Y-%m-%d %H:%M")
-        ok = save_operation(تاريخ_كامل, "إخراج", nom_out, produit_out, type_out, quantite_out, f"إخراج... {sijil_out}")
-        if ok:
+        if save_operation(تاريخ_كامل, "إخراج", nom_out, produit_out, type_out, quantite_out, f"إخراج... {sijil_out}"):
             st.success(f"✅ تم الإخراج وحُفظ: {sijil_out} — {تاريخ_كامل}")
 
-# ── استلام
+# ════════════════════════════════════════
+# ── Tab 2: استلام
+# ════════════════════════════════════════
 with tab2:
     st.markdown("### 📥 استلام من المنزل")
     col1, col2 = st.columns(2)
@@ -231,13 +317,10 @@ with tab2:
         type_in = st.selectbox("النوع", types, key="in_type")
     with col4:
         nom_in = st.selectbox("المنزل", منازل, key="in_nom")
-
     date_in = st.date_input("📅 التاريخ", value=date.today(), key="in_date")
     time_in = st.time_input("🕐 الوقت", value=datetime.now().time(), key="in_time")
-
     sijil_in = f"{nom_in} / {produit_in}/{type_in}/{quantite_in}"
     st.info(f"📝 استلام... {sijil_in}")
-
     if st.button("✅ تأكيد الاستلام", use_container_width=True):
         تاريخ_كامل = datetime.combine(date_in, time_in).strftime("%Y-%m-%d %H:%M")
         df_ops = get_df_ops()
@@ -252,23 +335,125 @@ with tab2:
             ناقص = اخراج - استلام_سابق - quantite_in
         else:
             ناقص = 0
-
-        ok = save_operation(تاريخ_كامل, "استلام", nom_in, produit_in, type_in, quantite_in, f"استلام... {sijil_in}")
-        if ok:
+        if save_operation(تاريخ_كامل, "استلام", nom_in, produit_in, type_in, quantite_in, f"استلام... {sijil_in}"):
             if ناقص > 0:
                 st.warning(f"⚠️ تم الاستلام لكن هناك ناقص: {int(ناقص)} قطعة")
             else:
                 st.success(f"✅ تم الاستلام وحُفظ: {sijil_in} — {تاريخ_كامل}")
 
-# ── المخزن
+# ════════════════════════════════════════
+# ── Tab 3: البيع
+# ════════════════════════════════════════
 with tab3:
-    st.markdown("### 🏪 المخزن")
+    st.markdown("### 🛒 البيع — تسليم للعميل")
+    col1, col2 = st.columns(2)
+    with col1:
+        produit_vente = st.selectbox("المنتج", produits, key="vente_prod")
+    with col2:
+        quantite_vente = st.number_input("الكمية", min_value=1, step=1, key="vente_qty")
+    col3, col4 = st.columns(2)
+    with col3:
+        type_vente = st.selectbox("النوع", types, key="vente_type")
+    with col4:
+        nom_vente = st.selectbox("المنزل", منازل, key="vente_nom")
+    date_vente = st.date_input("📅 التاريخ", value=date.today(), key="vente_date")
+    time_vente = st.time_input("🕐 الوقت", value=datetime.now().time(), key="vente_time")
+    sijil_vente = f"{nom_vente} / {produit_vente}/{type_vente}/{quantite_vente}"
+    st.info(f"📝 بيع... {sijil_vente}")
 
+    if st.button("🛒 تأكيد البيع", use_container_width=True):
+        st.session_state["confirm_vente"] = True
+        st.session_state["vente_data"] = {
+            "تاريخ": datetime.combine(date_vente, time_vente).strftime("%Y-%m-%d %H:%M"),
+            "منزل": nom_vente, "منتج": produit_vente,
+            "صنف": type_vente, "كمية": quantite_vente, "سجل": f"بيع... {sijil_vente}"
+        }
+
+    if st.session_state.get("confirm_vente"):
+        st.warning("⚠️ راك سور؟ متتمنيكش إذا فاصيت متوليش!")
+        col_yes, col_no = st.columns(2)
+        with col_yes:
+            if st.button("✅ تأكيد", use_container_width=True, key="yes_vente"):
+                d = st.session_state["vente_data"]
+                if save_vente(d["تاريخ"], d["منزل"], d["منتج"], d["صنف"], d["كمية"], d["سجل"]):
+                    st.success(f"✅ تم البيع وحُفظ! {sijil_vente}")
+                st.session_state["confirm_vente"] = False
+                st.rerun()
+        with col_no:
+            if st.button("❌ إلغاء", use_container_width=True, key="no_vente"):
+                st.session_state["confirm_vente"] = False
+                st.rerun()
+
+    st.divider()
+    st.markdown("#### 📜 سجل المبيعات")
+    df_ventes = get_df_ventes()
+
+    # ── بحث مع اقتراحات منزلقة
+    col_s1, col_s2, col_s3 = st.columns(3)
+    with col_s1:
+        sv_منزل = st.text_input("🔍 بحث بالمنزل", key="sv_منزل")
+        if sv_منزل:
+            sugg = [m for m in منازل if sv_منزل.strip().lower() in m.lower()]
+            for i, s in enumerate(sugg[:5]):
+                if st.button(s, key=f"sv_منزل_s_{i}", use_container_width=True):
+                    st.session_state["sv_منزل"] = s
+                    st.rerun()
+    with col_s2:
+        sv_منتج = st.text_input("🔍 بحث بالمنتج", key="sv_منتج")
+        if sv_منتج:
+            sugg = [p for p in produits if sv_منتج.strip().lower() in p.lower()]
+            for i, s in enumerate(sugg[:5]):
+                if st.button(s, key=f"sv_منتج_s_{i}", use_container_width=True):
+                    st.session_state["sv_منتج"] = s
+                    st.rerun()
+    with col_s3:
+        sv_تاريخ = st.text_input("📅 بحث بالتاريخ", placeholder="2026-05-19", key="sv_تاريخ")
+
+    if not df_ventes.empty:
+        df_vf = df_ventes.copy()
+        if sv_منزل:
+            df_vf = df_vf[df_vf["المنزل"].str.contains(sv_منزل, na=False)]
+        if sv_منتج:
+            df_vf = df_vf[df_vf["المنتج"].str.contains(sv_منتج, na=False)]
+        if sv_تاريخ:
+            df_vf = df_vf[df_vf["التاريخ"].str.contains(sv_تاريخ, na=False)]
+
+        for idx, row in df_vf.iterrows():
+            col_r, col_d = st.columns([5, 1])
+            with col_r:
+                st.write(f"**{row['التاريخ']}** | {row['المنزل']} | {row['المنتج']} | {row['الصنف']} | {row['الكمية']}")
+            with col_d:
+                if st.button("🗑️", key=f"del_vente_{idx}"):
+                    st.session_state[f"confirm_del_vente_{idx}"] = True
+
+            if st.session_state.get(f"confirm_del_vente_{idx}"):
+                st.warning("⚠️ راك سور؟ متتمنيكش إذا فاصيت متوليش!")
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button("✅ تأكيد الحذف", key=f"yes_del_vente_{idx}", use_container_width=True):
+                        delete_vente(idx)
+                        st.session_state[f"confirm_del_vente_{idx}"] = False
+                        st.rerun()
+                with c2:
+                    if st.button("❌ إلغاء", key=f"no_del_vente_{idx}", use_container_width=True):
+                        st.session_state[f"confirm_del_vente_{idx}"] = False
+                        st.rerun()
+    else:
+        st.info("لا توجد مبيعات بعد.")
+
+# ════════════════════════════════════════
+# ── Tab 4: المخزن
+# ════════════════════════════════════════
+with tab4:
+    st.markdown("### 🏪 المخزن")
     if st.button("🔄 تحديث المخزن", use_container_width=True):
         load_operations.clear()
+        load_ventes.clear()
         st.rerun()
 
     df_ops = get_df_ops()
+    df_ventes = get_df_ventes()
+
     if not df_ops.empty:
         df_out = df_ops[df_ops["النوع"] == "إخراج"].groupby(["المنزل","المنتج","الصنف"])["الكمية"].sum().reset_index()
         df_out.columns = ["المنزل","المنتج","الصنف","المُخرَج"]
@@ -276,20 +461,42 @@ with tab3:
         df_in.columns = ["المنزل","المنتج","الصنف","المُستلَم"]
         df_balance = df_out.merge(df_in, on=["المنزل","المنتج","الصنف"], how="left")
         df_balance["المُستلَم"] = df_balance["المُستلَم"].fillna(0).astype(int)
-        df_balance["الرصيد المتبقي"] = df_balance["المُخرَج"] - df_balance["المُستلَم"]
+
+        # خصم المبيعات من المخزون
+        if not df_ventes.empty:
+            df_sold = df_ventes.groupby(["المنزل","المنتج","الصنف"])["الكمية"].sum().reset_index()
+            df_sold.columns = ["المنزل","المنتج","الصنف","المباع"]
+            df_balance = df_balance.merge(df_sold, on=["المنزل","المنتج","الصنف"], how="left")
+            df_balance["المباع"] = df_balance["المباع"].fillna(0).astype(int)
+        else:
+            df_balance["المباع"] = 0
+
+        df_balance["الرصيد المتبقي"] = df_balance["المُستلَم"] - df_balance["المباع"]
         st.dataframe(df_balance, use_container_width=True)
 
         st.divider()
         st.markdown("#### 📜 كل السجلات (مرتبة زمنياً)")
 
-        # خانات البحث تحت السجلات
+        # ── بحث مع اقتراحات منزلقة
         col_s1, col_s2, col_s3 = st.columns(3)
         with col_s1:
             search_منزل = st.text_input("🔍 بحث بالمنزل", key="s_منزل")
+            if search_منزل:
+                sugg = [m for m in منازل if search_منزل.strip().lower() in m.lower()]
+                for i, s in enumerate(sugg[:5]):
+                    if st.button(s, key=f"s_منزل_s_{i}", use_container_width=True):
+                        st.session_state["s_منزل"] = s
+                        st.rerun()
         with col_s2:
             search_منتج = st.text_input("🔍 بحث بالمنتج", key="s_منتج")
+            if search_منتج:
+                sugg = [p for p in produits if search_منتج.strip().lower() in p.lower()]
+                for i, s in enumerate(sugg[:5]):
+                    if st.button(s, key=f"s_منتج_s_{i}", use_container_width=True):
+                        st.session_state["s_منتج"] = s
+                        st.rerun()
         with col_s3:
-            search_تاريخ = st.text_input("📅 بحث بالتاريخ", placeholder="مثال: 2026-05-19", key="s_تاريخ")
+            search_تاريخ = st.text_input("📅 بحث بالتاريخ", placeholder="2026-05-19", key="s_تاريخ")
 
         df_filtered = df_ops.copy()
         if search_منزل:
@@ -299,112 +506,12 @@ with tab3:
         if search_تاريخ:
             df_filtered = df_filtered[df_filtered["التاريخ"].str.contains(search_تاريخ, na=False)]
 
-        st.dataframe(df_filtered[["التاريخ","النوع","المنزل","المنتج","الصنف","الكمية","السجل"]], use_container_width=True)
-        csv = df_filtered.to_csv(index=False).encode("utf-8-sig")
-        st.download_button("⬇️ تحميل CSV", csv, "سجل_العمليات.csv", "text/csv")
-    else:
-        st.info("المخزن فارغ — سجّل أول عملية.")
+        for idx, row in df_filtered.iterrows():
+            col_r, col_d = st.columns([5, 1])
+            with col_r:
+                st.write(f"**{row['التاريخ']}** | {row['النوع']} | {row['المنزل']} | {row['المنتج']} | {row['الصنف']} | {row['الكمية']}")
+            with col_d:
+                if st.button("🗑️", key=f"del_{idx}"):
+                    st.session_state[f"confirm_del_{idx}"] = True
 
-# ── الأخطاء
-with tab4:
-    st.markdown("### ❌ سجل الأخطاء (الناقص فقط)")
-    df_ops = get_df_ops()
-    if not df_ops.empty:
-        rows = []
-        for منزل in df_ops["المنزل"].unique():
-            for منتج in df_ops[df_ops["المنزل"] == منزل]["المنتج"].unique():
-                for صنف in df_ops[
-                    (df_ops["المنزل"] == منزل) &
-                    (df_ops["المنتج"] == منتج)
-                ]["الصنف"].unique():
-                    df_f = df_ops[
-                        (df_ops["المنزل"] == منزل) &
-                        (df_ops["المنتج"] == منتج) &
-                        (df_ops["الصنف"] == صنف)
-                    ]
-                    اخراج_كلي = df_f[df_f["النوع"] == "إخراج"]["الكمية"].sum()
-                    استلام_كلي = df_f[df_f["النوع"] == "استلام"]["الكمية"].sum()
-                    ناقص_حالي = max(0, اخراج_كلي - استلام_كلي)
-                    if ناقص_حالي > 0:
-                        rows.append({
-                            "المنزل": منزل, "المنتج": منتج, "الصنف": صنف,
-                            "المُخرَج": int(اخراج_كلي),
-                            "المُستلَم": int(استلام_كلي),
-                            "الناقص الحالي": int(ناقص_حالي)
-                        })
-        if rows:
-            df_active_errors = pd.DataFrame(rows)
-            st.dataframe(df_active_errors, use_container_width=True)
-            st.divider()
-            st.markdown("#### 📊 إجمالي الناقص لكل منزل")
-            df_total = df_active_errors.groupby(["المنزل","المنتج","الصنف"])["الناقص الحالي"].sum().reset_index()
-            st.dataframe(df_total, use_container_width=True)
-            csv_err = df_active_errors.to_csv(index=False).encode("utf-8-sig")
-            st.download_button("⬇️ تحميل الأخطاء CSV", csv_err, "الأخطاء.csv", "text/csv")
-        else:
-            st.success("✅ تمت تسوية كل الأخطاء!")
-    else:
-        st.success("✅ لا توجد أخطاء حتى الآن!")
-
-# ── No Livraison
-with tab5:
-    st.markdown("### 📦 No Livraison — الطلبيات المنتظرة")
-    st.markdown("#### ➕ إضافة طلبية")
-    col1, col2 = st.columns(2)
-    with col1:
-        liv_prod = st.selectbox("المنتج", produits, key="liv_prod")
-    with col2:
-        liv_qty = st.number_input("الكمية المطلوبة", min_value=1, step=1, key="liv_qty")
-
-    if st.button("➕ إضافة الطلبية", use_container_width=True):
-        if save_livraison(liv_prod, liv_qty):
-            st.success(f"✅ تمت إضافة طلبية {liv_prod} / {liv_qty}")
-            st.rerun()
-
-    st.divider()
-    livraisons_actives = load_livraisons()
-
-    if livraisons_actives:
-        st.markdown("#### 📋 الطلبيات النشطة")
-        for liv in livraisons_actives:
-            col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
-            with col1:
-                st.write(f"**{liv['المنتج']}**")
-            with col2:
-                st.write(f"مطلوب: {liv['الكمية المطلوبة']}")
-            with col3:
-                st.write(f"إنتاج: {liv['في الإنتاج']}")
-            with col4:
-                if st.button("🗑️ إلغاء", key=f"cancel_{liv['row_idx']}"):
-                    cancel_livraison(liv["row_idx"])
-                    st.rerun()
-    else:
-        st.info("لا توجد طلبيات منتظرة.")
-
-# ── الصور
-with tab6:
-    st.markdown("### 🖼️ معرض الصور")
-    search_ref = st.text_input("🔍 بحث بالمرجع", key="search_img")
-
-    if st.button("🔄 تحديث الصور", use_container_width=True):
-        load_images.clear()
-        load_sheet_csv.clear()
-        st.rerun()
-
-    df_images = load_images()
-    if search_ref:
-        df_images = df_images[df_images["المرجع"].str.contains(search_ref, case=False, na=False)]
-
-    if df_images.empty:
-        st.info("لا توجد صور — أضف بيانات في ورقة 'الصور' في Google Sheets.")
-    else:
-        cols = st.columns(3)
-        for idx, row in df_images.reset_index(drop=True).iterrows():
-            img_url = BASE_IMAGE_URL + str(row["الرابط"]).strip()
-            مرجع = str(row["المرجع"]).strip()
-            with cols[idx % 3]:
-                try:
-                    st.image(img_url, caption=مرجع, use_column_width=True)
-                except:
-                    st.error(f"❌ {مرجع}")
-        
+            if st.session_s
