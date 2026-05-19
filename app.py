@@ -65,6 +65,13 @@ def load_produits():
     df = load_sheet_csv("الكراس")
     return df["Référence"].dropna().tolist()
 
+# ── قراءة الأنواع من الكراس (B1, C1, D1, E1 ...)
+@st.cache_data(ttl=60)
+def load_types():
+    df = load_sheet_csv("الكراس")
+    types = [col.strip() for col in df.columns[1:] if col.strip() != ""]
+    return types if types else ["FN", "CT"]
+
 # ── قراءة المنازل من السلع (العمود A من الصف 2)
 @st.cache_data(ttl=60)
 def load_منازل():
@@ -168,11 +175,13 @@ def get_df_ops():
 # ── تحميل البيانات من Sheets
 produits = load_produits()
 منازل = load_منازل()
+types = load_types()
 
 # ── زر تحديث عام
 if st.button("🔄 تحديث جميع البيانات", use_container_width=True):
     load_produits.clear()
     load_منازل.clear()
+    load_types.clear()
     load_operations.clear()
     load_livraisons.clear()
     load_images.clear()
@@ -193,7 +202,7 @@ with tab1:
         quantite_out = st.number_input("الكمية", min_value=1, step=1, key="out_qty")
     col3, col4 = st.columns(2)
     with col3:
-        type_out = st.selectbox("النوع", ["FN", "CT"], key="out_type")
+        type_out = st.selectbox("النوع", types, key="out_type")
     with col4:
         nom_out = st.selectbox("المنزل", منازل, key="out_nom")
 
@@ -219,7 +228,7 @@ with tab2:
         quantite_in = st.number_input("الكمية", min_value=1, step=1, key="in_qty")
     col3, col4 = st.columns(2)
     with col3:
-        type_in = st.selectbox("النوع", ["FN", "CT"], key="in_type")
+        type_in = st.selectbox("النوع", types, key="in_type")
     with col4:
         nom_in = st.selectbox("المنزل", منازل, key="in_nom")
 
@@ -253,12 +262,7 @@ with tab2:
 
 # ── المخزن
 with tab3:
-    st.markdown("### 🏪 المخزن والبحث")
-    col_s1, col_s2 = st.columns(2)
-    with col_s1:
-        search_منزل = st.text_input("🔍 بحث باسم المنزل")
-    with col_s2:
-        search_منتج = st.text_input("🔍 بحث باسم المنتج")
+    st.markdown("### 🏪 المخزن")
 
     if st.button("🔄 تحديث المخزن", use_container_width=True):
         load_operations.clear()
@@ -273,17 +277,30 @@ with tab3:
         df_balance = df_out.merge(df_in, on=["المنزل","المنتج","الصنف"], how="left")
         df_balance["المُستلَم"] = df_balance["المُستلَم"].fillna(0).astype(int)
         df_balance["الرصيد المتبقي"] = df_balance["المُخرَج"] - df_balance["المُستلَم"]
-
-        if search_منزل:
-            df_balance = df_balance[df_balance["المنزل"].str.contains(search_منزل, na=False)]
-        if search_منتج:
-            df_balance = df_balance[df_balance["المنتج"].str.contains(search_منتج, na=False)]
-
         st.dataframe(df_balance, use_container_width=True)
+
         st.divider()
         st.markdown("#### 📜 كل السجلات (مرتبة زمنياً)")
-        st.dataframe(df_ops[["التاريخ","النوع","المنزل","المنتج","الصنف","الكمية","السجل"]], use_container_width=True)
-        csv = df_ops.to_csv(index=False).encode("utf-8-sig")
+
+        # خانات البحث تحت السجلات
+        col_s1, col_s2, col_s3 = st.columns(3)
+        with col_s1:
+            search_منزل = st.text_input("🔍 بحث بالمنزل", key="s_منزل")
+        with col_s2:
+            search_منتج = st.text_input("🔍 بحث بالمنتج", key="s_منتج")
+        with col_s3:
+            search_تاريخ = st.text_input("📅 بحث بالتاريخ", placeholder="مثال: 2026-05-19", key="s_تاريخ")
+
+        df_filtered = df_ops.copy()
+        if search_منزل:
+            df_filtered = df_filtered[df_filtered["المنزل"].str.contains(search_منزل, na=False)]
+        if search_منتج:
+            df_filtered = df_filtered[df_filtered["المنتج"].str.contains(search_منتج, na=False)]
+        if search_تاريخ:
+            df_filtered = df_filtered[df_filtered["التاريخ"].str.contains(search_تاريخ, na=False)]
+
+        st.dataframe(df_filtered[["التاريخ","النوع","المنزل","المنتج","الصنف","الكمية","السجل"]], use_container_width=True)
+        csv = df_filtered.to_csv(index=False).encode("utf-8-sig")
         st.download_button("⬇️ تحميل CSV", csv, "سجل_العمليات.csv", "text/csv")
     else:
         st.info("المخزن فارغ — سجّل أول عملية.")
@@ -390,4 +407,4 @@ with tab6:
                     st.image(img_url, caption=مرجع, use_column_width=True)
                 except:
                     st.error(f"❌ {مرجع}")
-    
+        
